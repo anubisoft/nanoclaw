@@ -11,8 +11,12 @@ import { logger } from './logger.js';
 /** The container runtime binary name. */
 export const CONTAINER_RUNTIME_BIN = 'docker';
 
-/** Hostname containers use to reach the host machine. */
-export const CONTAINER_HOST_GATEWAY = 'host.docker.internal';
+/**
+ * Hostname containers use to reach the host machine.
+ * On Linux we use host networking, so containers connect via loopback.
+ */
+export const CONTAINER_HOST_GATEWAY =
+  os.platform() === 'linux' ? '127.0.0.1' : 'host.docker.internal';
 
 /**
  * Address the credential proxy binds to.
@@ -42,9 +46,11 @@ function detectProxyBindHost(): string {
 
 /** CLI args needed for the container to resolve the host gateway. */
 export function hostGatewayArgs(): string[] {
-  // On Linux, host.docker.internal isn't built-in — add it explicitly
+  // On Linux, use host networking so the container shares the host's network
+  // stack and can reach the credential proxy on localhost:3001 directly,
+  // bypassing any firewall rules that block the Docker bridge.
   if (os.platform() === 'linux') {
-    return ['--add-host=host.docker.internal:host-gateway'];
+    return ['--network=host'];
   }
   return [];
 }

@@ -238,6 +238,12 @@ function buildContainerArgs(
     args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
   }
 
+  // Pass GitHub PAT for the GitHub MCP server (if configured)
+  const githubPat = process.env.GITHUB_PAT;
+  if (githubPat) {
+    args.push('-e', `GITHUB_PERSONAL_ACCESS_TOKEN=${githubPat}`);
+  }
+
   // Runtime-specific args for host gateway resolution
   args.push(...hostGatewayArgs());
 
