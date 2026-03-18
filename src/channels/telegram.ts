@@ -254,10 +254,7 @@ export class TelegramChannel implements Channel {
           if (file.file_path) {
             const buffer = await this.downloadFile(file.file_path);
             const inferredName = file.file_path.split('/').pop() || 'voice.ogg';
-            const transcript = await transcribeFromBuffer(
-              buffer,
-              inferredName,
-            );
+            const transcript = await transcribeFromBuffer(buffer, inferredName);
             if (transcript) {
               content = `[Voice: ${transcript}]${caption}`;
             }
@@ -316,13 +313,8 @@ export class TelegramChannel implements Channel {
           if (file.file_path) {
             const buffer = await this.downloadFile(file.file_path);
             const inferredName =
-              audio.file_name ||
-              file.file_path.split('/').pop() ||
-              'audio.ogg';
-            const transcript = await transcribeFromBuffer(
-              buffer,
-              inferredName,
-            );
+              audio.file_name || file.file_path.split('/').pop() || 'audio.ogg';
+            const transcript = await transcribeFromBuffer(buffer, inferredName);
             if (transcript) {
               content = `[Audio: ${transcript}]${caption}`;
             }
@@ -407,8 +399,7 @@ export class TelegramChannel implements Channel {
           logger.error(
             {
               jid,
-              err:
-                ttsErr instanceof Error ? ttsErr.message : String(ttsErr),
+              err: ttsErr instanceof Error ? ttsErr.message : String(ttsErr),
             },
             'Failed to send voice reply, falling back to text',
           );

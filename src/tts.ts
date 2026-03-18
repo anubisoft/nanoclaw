@@ -35,9 +35,7 @@ function getVoice(): Voice {
  * Returns an MP3 audio buffer suitable for Telegram sendVoice,
  * or null if TTS is unavailable (no API key, error, etc.).
  */
-export async function synthesizeSpeech(
-  text: string,
-): Promise<Buffer | null> {
+export async function synthesizeSpeech(text: string): Promise<Buffer | null> {
   const client = getClient();
   if (!client) return null;
 

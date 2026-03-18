@@ -52,4 +52,3 @@ export async function transcribeFromBuffer(
     return null;
   }
 }
-
