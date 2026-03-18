@@ -20,12 +20,15 @@ concurrency:
   group: fork-sync
   cancel-in-progress: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   sync-and-merge:
     if: github.repository != 'qwibitai/nanoclaw'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v1
         id: app-token
         with:
           app-id: ${{ secrets.APP_ID }}
