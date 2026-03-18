@@ -3,8 +3,8 @@ import OpenAI from 'openai';
 import { logger } from './logger.js';
 import { readEnvFile } from './env.js';
 
-type Voice = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
-const DEFAULT_VOICE: Voice = 'nova';
+type Voice = 'alloy' | 'ash' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
+const DEFAULT_VOICE: Voice = 'ash';
 
 let openaiClient: OpenAI | null = null;
 
