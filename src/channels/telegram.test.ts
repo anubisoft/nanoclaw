@@ -8,6 +8,13 @@ vi.mock('./registry.js', () => ({ registerChannel: vi.fn() }));
 // Mock env reader (used by the factory, not needed in unit tests)
 vi.mock('../env.js', () => ({ readEnvFile: vi.fn(() => ({})) }));
 
+// Mock transcription module so tests don't hit OpenAI or depend on env
+const transcribeFromBufferMock = vi.fn();
+vi.mock('../transcription.js', () => ({
+  transcribeFromBuffer: (...args: [Buffer, string]) =>
+    transcribeFromBufferMock(...args),
+}));
+
 // Mock config
 vi.mock('../config.js', () => ({
   ASSISTANT_NAME: 'Andy',
@@ -583,12 +590,15 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it('stores voice message with placeholder', async () => {
+    it('stores voice message with placeholder when transcription unavailable', async () => {
+      transcribeFromBufferMock.mockResolvedValueOnce(null);
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const ctx = createMediaCtx({});
+      const ctx = createMediaCtx({
+        extra: { voice: { file_id: 'voice-file-id' } },
+      });
       await triggerMediaMessage('message:voice', ctx);
 
       expect(opts.onMessage).toHaveBeenCalledWith(
@@ -597,17 +607,54 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it('stores audio with placeholder', async () => {
+    it('stores voice message with transcript when available', async () => {
+      transcribeFromBufferMock.mockResolvedValueOnce('hello there');
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const ctx = createMediaCtx({});
+      const ctx = createMediaCtx({
+        extra: { voice: { file_id: 'voice-file-id' } },
+      });
+      await triggerMediaMessage('message:voice', ctx);
+
+      expect(opts.onMessage).toHaveBeenLastCalledWith(
+        'tg:100200300',
+        expect.objectContaining({ content: '[Voice: hello there]' }),
+      );
+    });
+
+    it('stores audio with placeholder when transcription unavailable', async () => {
+      transcribeFromBufferMock.mockResolvedValueOnce(null);
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const ctx = createMediaCtx({
+        extra: { audio: { file_id: 'audio-file-id' } },
+      });
       await triggerMediaMessage('message:audio', ctx);
 
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({ content: '[Audio]' }),
+      );
+    });
+
+    it('stores audio with transcript when available', async () => {
+      transcribeFromBufferMock.mockResolvedValueOnce('guitar riff');
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const ctx = createMediaCtx({
+        extra: { audio: { file_id: 'audio-file-id', file_name: 'song.ogg' } },
+      });
+      await triggerMediaMessage('message:audio', ctx);
+
+      expect(opts.onMessage).toHaveBeenLastCalledWith(
+        'tg:100200300',
+        expect.objectContaining({ content: '[Audio: guitar riff]' }),
       );
     });
 
@@ -710,6 +757,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
         '100200300',
         'Hello',
+        expect.any(Object),
       );
     });
 
@@ -723,6 +771,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
         '-1001234567890',
         'Group message',
+        expect.any(Object),
       );
     });
 
@@ -739,11 +788,13 @@ describe('TelegramChannel', () => {
         1,
         '100200300',
         'x'.repeat(4096),
+        expect.any(Object),
       );
       expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
         2,
         '100200300',
         'x'.repeat(904),
+        expect.any(Object),
       );
     });
 
