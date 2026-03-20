@@ -107,30 +107,12 @@ export class TelegramChannel implements Channel {
     });
 
     this.bot.on('message:text', async (ctx) => {
-      // Skip Telegram slash-commands by default (Telegram commands like `/start`
-      // shouldn't reach the agent pipeline).
-      //
-      // However, NanoClaw uses `/remote-control` and `/remote-control-end`
-      // as *host-side* control messages, so we whitelist them and normalize
-      // `/remote-control@<bot_username>` back to `/remote-control`.
-      const rawText = ctx.message.text || '';
-      const trimmed = rawText.trim();
-
-      const isRemoteControl =
-        trimmed === '/remote-control' ||
-        trimmed === '/remote-control-end' ||
-        trimmed.startsWith('/remote-control@') ||
-        trimmed.startsWith('/remote-control-end@');
-
-      // For all other slash-commands, ignore the message.
-      if (rawText.startsWith('/') && !isRemoteControl) return;
+      // Skip commands
+      if (ctx.message.text.startsWith('/')) return;
 
       const chatJid = `tg:${ctx.chat.id}`;
       this.lastMessageWasVoice.delete(chatJid);
-      let content = rawText;
-      if (trimmed.startsWith('/remote-control@')) content = '/remote-control';
-      if (trimmed.startsWith('/remote-control-end@'))
-        content = '/remote-control-end';
+      let content = ctx.message.text;
       const timestamp = new Date(ctx.message.date * 1000).toISOString();
       const senderName =
         ctx.from?.first_name ||
