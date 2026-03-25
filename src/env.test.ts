@@ -48,4 +48,14 @@ describe('readEnvFile', () => {
       delete process.env.FOO_FROM_ENV;
     }
   });
+
+  it('uses process.env when no .env file exists', () => {
+    process.env.BAR_ONLY_ENV = 'from-process';
+    try {
+      const r = readEnvFile(['BAR_ONLY_ENV']);
+      expect(r.BAR_ONLY_ENV).toBe('from-process');
+    } finally {
+      delete process.env.BAR_ONLY_ENV;
+    }
+  });
 });

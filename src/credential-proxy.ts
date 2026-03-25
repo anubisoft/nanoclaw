@@ -38,6 +38,12 @@ export function startCredentialProxy(
   const oauthToken =
     secrets.CLAUDE_CODE_OAUTH_TOKEN || secrets.ANTHROPIC_AUTH_TOKEN;
 
+  if (authMode === 'oauth' && !oauthToken) {
+    logger.error(
+      'Credential proxy: OAuth mode but no CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_AUTH_TOKEN — agents will see "not logged in"',
+    );
+  }
+
   const upstreamUrl = new URL(
     secrets.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
   );

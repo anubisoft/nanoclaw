@@ -10,12 +10,13 @@ import { logger } from './logger.js';
  */
 export function readEnvFile(keys: string[]): Record<string, string> {
   const envFile = path.join(process.cwd(), '.env');
-  let content: string;
+  let content = '';
   try {
     content = fs.readFileSync(envFile, 'utf-8');
   } catch (err) {
-    logger.debug({ err }, '.env file not found, using defaults');
-    return {};
+    // No disk .env (typical in Docker when secrets come from Compose env_file only).
+    // Still fall through so process.env merge below can populate keys.
+    logger.debug({ err }, '.env file not found; will use process.env for missing keys');
   }
 
   const result: Record<string, string> = {};
