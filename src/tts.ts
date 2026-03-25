@@ -2,9 +2,9 @@ import OpenAI from 'openai';
 
 import { logger } from './logger.js';
 import { readEnvFile } from './env.js';
+import { isTtsVoice, readSettings, type TtsVoice } from './settings.js';
 
-type Voice = 'alloy' | 'ash' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
-const DEFAULT_VOICE: Voice = 'ash';
+const DEFAULT_VOICE: TtsVoice = 'ash';
 
 let openaiClient: OpenAI | null = null;
 
@@ -23,10 +23,15 @@ function getClient(): OpenAI | null {
   return openaiClient;
 }
 
-function getVoice(): Voice {
+function getVoice(): TtsVoice {
+  const stored = readSettings().ttsVoice;
+  if (stored && isTtsVoice(stored)) return stored;
+
   const envVars = readEnvFile(['TTS_VOICE']);
-  const voice = process.env.TTS_VOICE || envVars.TTS_VOICE || DEFAULT_VOICE;
-  return voice as Voice;
+  const raw = process.env.TTS_VOICE || envVars.TTS_VOICE || DEFAULT_VOICE;
+  if (typeof raw === 'string' && isTtsVoice(raw)) return raw;
+
+  return DEFAULT_VOICE;
 }
 
 /**

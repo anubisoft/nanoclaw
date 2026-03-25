@@ -15,10 +15,12 @@ import {
 } from './db.js';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
+import { ALLOWED_TTS_VOICES, isTtsVoice, readSettings, setTtsVoice } from './settings.js';
 
 export interface TmaStatusPayload {
   assistantName: string;
   channels: string[];
+  ttsVoice: string;
   registeredGroups: Array<{
     jid: string;
     name: string;
@@ -49,14 +51,42 @@ export function buildTmaStatusPayload(): TmaStatusPayload {
   const tasks = getAllTasks();
   const active = tasks.filter((t) => t.status === 'active').length;
 
+  const storedVoice = readSettings().ttsVoice;
+  const envVoice = process.env.TTS_VOICE;
+  const ttsVoice =
+    (storedVoice && isTtsVoice(storedVoice) && storedVoice) ||
+    (envVoice && isTtsVoice(envVoice) && envVoice) ||
+    'ash';
+
   return {
     assistantName: ASSISTANT_NAME,
     channels: getRegisteredChannelNames(),
+    ttsVoice,
     registeredGroups,
     chats: { total: chats.length, byChannel },
     tasks: { total: tasks.length, active },
     lastGroupSync: getLastGroupSync(),
   };
+}
+
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  return await new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch (err) {
+        reject(err);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body));
 }
 
 function tmaStatusEnv(): { portStr?: string; secret?: string; host: string } {
@@ -98,28 +128,50 @@ export function startTmaStatusServer(): Promise<Server | null> {
   const expectedAuth = `Bearer ${secret}`;
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    if (req.method !== 'GET' || req.url?.split('?')[0] !== '/status') {
-      res.writeHead(req.method === 'GET' ? 404 : 405, {
-        'Content-Type': 'application/json',
-      });
-      res.end(JSON.stringify({ error: 'not_found' }));
-      return;
-    }
+    const path = req.url?.split('?')[0] || '';
     const auth = req.headers.authorization;
     if (auth !== expectedAuth) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'unauthorized' }));
+      sendJson(res, 401, { error: 'unauthorized' });
       return;
     }
-    try {
-      const payload = buildTmaStatusPayload();
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(payload));
-    } catch (err) {
-      logger.error({ err }, 'TMA status payload error');
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'internal_error' }));
+
+    if (req.method === 'GET' && path === '/status') {
+      try {
+        const payload = buildTmaStatusPayload();
+        sendJson(res, 200, payload);
+      } catch (err) {
+        logger.error({ err }, 'TMA status payload error');
+        sendJson(res, 500, { error: 'internal_error' });
+      }
+      return;
     }
+
+    if (req.method === 'POST' && path === '/settings/tts-voice') {
+      void (async () => {
+        try {
+          const body = await readJsonBody(req);
+          const voice =
+            body && typeof body === 'object' && 'voice' in body
+              ? (body as { voice?: unknown }).voice
+              : undefined;
+          if (typeof voice !== 'string' || !isTtsVoice(voice)) {
+            sendJson(res, 400, {
+              error: 'invalid_voice',
+              allowed: ALLOWED_TTS_VOICES,
+            });
+            return;
+          }
+          setTtsVoice(voice);
+          sendJson(res, 200, { ok: true, voice });
+        } catch (err) {
+          logger.error({ err }, 'TMA set ttsVoice error');
+          sendJson(res, 400, { error: 'invalid_json' });
+        }
+      })();
+      return;
+    }
+
+    sendJson(res, req.method === 'GET' ? 404 : 405, { error: 'not_found' });
   });
 
   return new Promise((resolve, reject) => {
