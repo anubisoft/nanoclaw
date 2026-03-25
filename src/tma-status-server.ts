@@ -15,7 +15,12 @@ import {
 } from './db.js';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
-import { ALLOWED_TTS_VOICES, isTtsVoice, readSettings, setTtsVoice } from './settings.js';
+import {
+  ALLOWED_TTS_VOICES,
+  isTtsVoice,
+  readSettings,
+  setTtsVoice,
+} from './settings.js';
 
 export interface TmaStatusPayload {
   assistantName: string;

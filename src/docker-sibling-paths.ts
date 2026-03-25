@@ -158,7 +158,10 @@ export function translatePathForNestedDocker(
 ): string {
   const abs = path.resolve(orchestratorAbsPath);
   for (const m of mappings) {
-    if (abs === m.containerPrefix || abs.startsWith(m.containerPrefix + path.sep)) {
+    if (
+      abs === m.containerPrefix ||
+      abs.startsWith(m.containerPrefix + path.sep)
+    ) {
       const rel = path.relative(m.containerPrefix, abs);
       return path.join(m.hostPrefix, rel);
     }
@@ -182,10 +185,14 @@ export function translatePathForDockerCliHost(
   projectRoot: string = process.cwd(),
 ): string {
   const mappings = cachedMappings ?? [];
-  return translatePathForNestedDocker(path.resolve(orchestratorPath), mappings, {
-    projectRoot,
-    hostProjectRootEnv: process.env.NANOCLAW_DOCKER_HOST_PROJECT_ROOT,
-  });
+  return translatePathForNestedDocker(
+    path.resolve(orchestratorPath),
+    mappings,
+    {
+      projectRoot,
+      hostProjectRootEnv: process.env.NANOCLAW_DOCKER_HOST_PROJECT_ROOT,
+    },
+  );
 }
 
 /** Test helper: reset module cache */

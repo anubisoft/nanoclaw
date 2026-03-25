@@ -16,9 +16,13 @@ describe('translatePathForNestedDocker', () => {
 
   it('maps paths under a named volume to the host _data path', () => {
     expect(
-      translatePathForNestedDocker('/app/data/sessions/main/agent-runner-src', mappings, {
-        projectRoot: '/app',
-      }),
+      translatePathForNestedDocker(
+        '/app/data/sessions/main/agent-runner-src',
+        mappings,
+        {
+          projectRoot: '/app',
+        },
+      ),
     ).toBe(`${volData}/sessions/main/agent-runner-src`);
   });
 
@@ -28,13 +32,17 @@ describe('translatePathForNestedDocker', () => {
       { containerPrefix: '/app/data', hostPrefix: volData },
     ].sort((a, b) => b.containerPrefix.length - a.containerPrefix.length);
     expect(
-      translatePathForNestedDocker('/app/data/x', nested, { projectRoot: '/app' }),
+      translatePathForNestedDocker('/app/data/x', nested, {
+        projectRoot: '/app',
+      }),
     ).toBe(`${volData}/x`);
   });
 
   it('returns the path unchanged when no mapping matches', () => {
     expect(
-      translatePathForNestedDocker('/tmp/orphan', mappings, { projectRoot: '/app' }),
+      translatePathForNestedDocker('/tmp/orphan', mappings, {
+        projectRoot: '/app',
+      }),
     ).toBe('/tmp/orphan');
   });
 

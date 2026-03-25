@@ -22,7 +22,9 @@ export function chownPathToAgentRecursiveIfRoot(targetPath: string): void {
   const { uid, gid } = agentContainerUidGid();
   try {
     if (!fs.existsSync(targetPath)) return;
-    spawnSync('chown', ['-R', `${uid}:${gid}`, targetPath], { stdio: 'ignore' });
+    spawnSync('chown', ['-R', `${uid}:${gid}`, targetPath], {
+      stdio: 'ignore',
+    });
   } catch {
     /* best-effort */
   }

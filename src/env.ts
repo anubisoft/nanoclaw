@@ -16,7 +16,10 @@ export function readEnvFile(keys: string[]): Record<string, string> {
   } catch (err) {
     // No disk .env (typical in Docker when secrets come from Compose env_file only).
     // Still fall through so process.env merge below can populate keys.
-    logger.debug({ err }, '.env file not found; will use process.env for missing keys');
+    logger.debug(
+      { err },
+      '.env file not found; will use process.env for missing keys',
+    );
   }
 
   const result: Record<string, string> = {};
