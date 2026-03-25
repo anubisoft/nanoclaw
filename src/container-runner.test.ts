@@ -51,6 +51,11 @@ vi.mock('./mount-security.js', () => ({
   validateAdditionalMounts: vi.fn(() => []),
 }));
 
+vi.mock('./docker-sibling-paths.js', () => ({
+  ensureDockerSiblingPathMappings: vi.fn().mockResolvedValue(undefined),
+  translatePathForDockerCliHost: (p: string, _root?: string) => p,
+}));
+
 // Create a controllable fake ChildProcess
 function createFakeProcess() {
   const proc = new EventEmitter() as EventEmitter & {

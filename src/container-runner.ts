@@ -27,6 +27,10 @@ import {
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
 import { validateAdditionalMounts } from './mount-security.js';
+import {
+  ensureDockerSiblingPathMappings,
+  translatePathForDockerCliHost,
+} from './docker-sibling-paths.js';
 import { RegisteredGroup } from './types.js';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
@@ -218,10 +222,13 @@ function buildVolumeMounts(
   return mounts;
 }
 
-function buildContainerArgs(
+async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
-): string[] {
+): Promise<string[]> {
+  await ensureDockerSiblingPathMappings();
+  const projectRoot = process.cwd();
+
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
   // Pass host timezone so container's local time matches the user's
@@ -264,10 +271,11 @@ function buildContainerArgs(
   }
 
   for (const mount of mounts) {
+    const hostPath = translatePathForDockerCliHost(mount.hostPath, projectRoot);
     if (mount.readonly) {
-      args.push(...readonlyMountArgs(mount.hostPath, mount.containerPath));
+      args.push(...readonlyMountArgs(hostPath, mount.containerPath));
     } else {
-      args.push('-v', `${mount.hostPath}:${mount.containerPath}`);
+      args.push('-v', `${hostPath}:${mount.containerPath}`);
     }
   }
 
@@ -290,7 +298,7 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName);
+  const containerArgs = await buildContainerArgs(mounts, containerName);
 
   logger.debug(
     {
