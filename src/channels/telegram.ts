@@ -359,7 +359,7 @@ export class TelegramChannel implements Channel {
     // Start polling — returns a Promise that resolves when started
     return new Promise<void>((resolve) => {
       this.bot!.start({
-        onStart: (botInfo) => {
+        onStart: async (botInfo) => {
           logger.info(
             { username: botInfo.username, id: botInfo.id },
             'Telegram bot connected',
@@ -368,6 +368,31 @@ export class TelegramChannel implements Channel {
           console.log(
             `  Send /chatid to the bot to get a chat's registration ID\n`,
           );
+
+          const envMini = readEnvFile(['TELEGRAM_MINI_APP_URL']);
+          const miniAppUrl =
+            process.env.TELEGRAM_MINI_APP_URL || envMini.TELEGRAM_MINI_APP_URL;
+          if (miniAppUrl) {
+            try {
+              await this.bot!.api.setChatMenuButton({
+                menu_button: {
+                  type: 'web_app',
+                  text: 'NanoClaw',
+                  web_app: { url: miniAppUrl },
+                },
+              });
+              logger.info(
+                { url: miniAppUrl },
+                'Telegram Mini App menu button set',
+              );
+            } catch (err) {
+              logger.warn(
+                { err },
+                'Failed to set Telegram Mini App menu button',
+              );
+            }
+          }
+
           resolve();
         },
       });

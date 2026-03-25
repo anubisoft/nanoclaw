@@ -2,6 +2,31 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 // --- Mocks ---
 
+vi.mock('https', () => ({
+  default: {
+    get: (
+      _url: URL | string,
+      cb: (res: {
+        statusCode: number;
+        resume: () => void;
+        on: (ev: string, fn: (chunk?: Buffer) => void) => void;
+      }) => void,
+    ) => {
+      queueMicrotask(() => {
+        cb({
+          statusCode: 200,
+          resume: vi.fn(),
+          on(ev: string, fn: (chunk?: Buffer) => void) {
+            if (ev === 'data') fn(Buffer.from('fake-audio'));
+            if (ev === 'end') fn();
+          },
+        });
+      });
+      return { on: vi.fn() };
+    },
+  },
+}));
+
 // Mock registry (registerChannel runs at import time)
 vi.mock('./registry.js', () => ({ registerChannel: vi.fn() }));
 
@@ -47,6 +72,8 @@ vi.mock('grammy', () => ({
     api = {
       sendMessage: vi.fn().mockResolvedValue(undefined),
       sendChatAction: vi.fn().mockResolvedValue(undefined),
+      setChatMenuButton: vi.fn().mockResolvedValue(true),
+      getFile: vi.fn().mockResolvedValue({ file_path: 'voice/test.ogg' }),
     };
 
     constructor(token: string) {
