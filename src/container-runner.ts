@@ -28,6 +28,10 @@ import {
 import { detectAuthMode } from './credential-proxy.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import {
+  chownPathToAgentRecursiveIfRoot,
+  agentContainerUidGid,
+} from './agent-container-user.js';
+import {
   ensureDockerSiblingPathMappings,
   translatePathForDockerCliHost,
 } from './docker-sibling-paths.js';
@@ -173,6 +177,8 @@ function buildVolumeMounts(
   fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'input'), { recursive: true });
+  chownPathToAgentRecursiveIfRoot(groupSessionsDir);
+  chownPathToAgentRecursiveIfRoot(groupIpcDir);
   mounts.push({
     hostPath: groupIpcDir,
     containerPath: '/workspace/ipc',
@@ -202,6 +208,7 @@ function buildVolumeMounts(
       fs.mkdirSync(groupAgentRunnerDir, { recursive: true });
       fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
     }
+    chownPathToAgentRecursiveIfRoot(groupAgentRunnerDir);
   }
   mounts.push({
     hostPath: groupAgentRunnerDir,
@@ -263,11 +270,12 @@ async function buildContainerArgs(
   // Run as host user so bind-mounted files are accessible.
   // Skip when running as root (uid 0), as the container's node user (uid 1000),
   // or when getuid is unavailable (native Windows without WSL).
+  const { uid: agentUid, gid: agentGid } = agentContainerUidGid();
   const hostUid = process.getuid?.();
-  const hostGid = process.getgid?.();
   if (hostUid != null && hostUid !== 0 && hostUid !== 1000) {
-    args.push('--user', `${hostUid}:${hostGid}`);
-    args.push('-e', 'HOME=/home/node');
+    args.push('--user', `${agentUid}:${agentGid}`);
+    // /home/node is not writable for arbitrary host uids; SDK still uses mounted /home/node/.claude
+    args.push('-e', 'HOME=/tmp');
   }
 
   for (const mount of mounts) {

@@ -106,6 +106,18 @@ export class TelegramChannel implements Channel {
       ctx.reply(`${ASSISTANT_NAME} is online.`);
     });
 
+    // Claude auth is server-side (API key or OAuth in the host .env / Compose env_file).
+    // The agent may mention "/login" — that is not a Telegram flow; this explains that.
+    this.bot.command('login', (ctx) => {
+      ctx.reply(
+        [
+          'Claude sign-in is configured on the server, not in Telegram.',
+          '',
+          'Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN for the NanoClaw process (Compose env_file is fine). Restart nanoclaw after changing secrets.',
+        ].join('\n'),
+      );
+    });
+
     this.bot.on('message:text', async (ctx) => {
       // Skip commands
       if (ctx.message.text.startsWith('/')) return;
