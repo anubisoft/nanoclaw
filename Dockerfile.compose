@@ -17,7 +17,8 @@ ENV HUSKY=0
 RUN corepack enable pnpm
 
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --ignore-scripts
+# Native addons (better-sqlite3) must compile; --ignore-scripts breaks runtime ("Could not locate the bindings file").
+RUN pnpm install --frozen-lockfile
 
 COPY tsconfig.json ./
 COPY src ./src
