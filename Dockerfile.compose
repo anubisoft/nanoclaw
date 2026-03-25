@@ -22,6 +22,8 @@ RUN pnpm install --frozen-lockfile
 
 COPY tsconfig.json ./
 COPY src ./src
+# Agent containers mount per-group copies from container/agent-runner/src; skills sync from container/skills.
+COPY container ./container
 RUN pnpm run build
 
 CMD ["node", "dist/index.js"]
