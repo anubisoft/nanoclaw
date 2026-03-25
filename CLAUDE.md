@@ -48,8 +48,8 @@ Before creating a PR, adding a skill, or preparing any contribution, you MUST re
 Run commands directly—don't tell the user to run them.
 
 ```bash
-npm run dev          # Run with hot reload
-npm run build        # Compile TypeScript
+pnpm dev          # Run with hot reload
+pnpm build        # Compile TypeScript
 ./container/build.sh # Rebuild agent container
 ```
 
@@ -60,10 +60,9 @@ launchctl load ~/Library/LaunchAgents/com.nanoclaw.plist
 launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist
 launchctl kickstart -k gui/$(id -u)/com.nanoclaw  # restart
 
-# Linux (systemd)
-systemctl --user start nanoclaw
-systemctl --user stop nanoclaw
-systemctl --user restart nanoclaw
+# Linux (this repo/server)
+# NanoClaw is expected to run as a Docker Compose service (see web-app-stack/),
+# not as a host user service. Avoid managing a host `nanoclaw.service`.
 ```
 
 ## Troubleshooting
