@@ -49,6 +49,12 @@ vi.mock('fs', async () => {
 // Mock mount-security
 vi.mock('./mount-security.js', () => ({
   validateAdditionalMounts: vi.fn(() => []),
+  resolveGroupMountPolicy: vi.fn((_config, isMain: boolean) => ({
+    allowProjectMount: isMain,
+    allowGlobalMount: false,
+    allowAdditionalMounts: isMain,
+    groupWorkspaceMode: 'rw',
+  })),
 }));
 
 vi.mock('./docker-sibling-paths.js', () => ({
@@ -91,8 +97,17 @@ vi.mock('child_process', async () => {
   };
 });
 
-import { runContainerAgent, ContainerOutput } from './container-runner.js';
+import {
+  buildVolumeMounts,
+  runContainerAgent,
+  ContainerOutput,
+} from './container-runner.js';
 import type { RegisteredGroup } from './types.js';
+import fs from 'fs';
+import {
+  validateAdditionalMounts,
+  resolveGroupMountPolicy,
+} from './mount-security.js';
 
 const testGroup: RegisteredGroup = {
   name: 'Test Group',
@@ -211,5 +226,84 @@ describe('container-runner timeout behavior', () => {
     const result = await resultPromise;
     expect(result.status).toBe('success');
     expect(result.newSessionId).toBe('session-456');
+  });
+});
+
+describe('buildVolumeMounts mount policy', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
+      const value = String(p);
+      return (
+        value === '/tmp/nanoclaw-test-groups/global' ||
+        value === '/workspace/project/container/skills' ||
+        value === '/workspace/project/container/agent-runner/src'
+      );
+    });
+    vi.mocked(fs.readdirSync).mockReturnValue([]);
+    vi.mocked(resolveGroupMountPolicy).mockImplementation(
+      (_config, isMain: boolean) => ({
+        allowProjectMount: isMain,
+        allowGlobalMount: false,
+        allowAdditionalMounts: isMain,
+        groupWorkspaceMode: 'rw',
+      }),
+    );
+    vi.mocked(validateAdditionalMounts).mockReturnValue([
+      {
+        hostPath: '/allowed/file.txt',
+        containerPath: '/workspace/extra/file.txt',
+        readonly: true,
+      },
+    ]);
+  });
+
+  it('denies global and additional mounts by default for non-main groups', () => {
+    const mounts = buildVolumeMounts(testGroup, false);
+    expect(mounts.some((m) => m.containerPath === '/workspace/global')).toBe(
+      false,
+    );
+    expect(
+      mounts.some((m) => m.containerPath.startsWith('/workspace/extra/')),
+    ).toBe(false);
+    expect(validateAdditionalMounts).not.toHaveBeenCalled();
+  });
+
+  it('allows explicitly enabled non-main mounts via resolved policy', () => {
+    vi.mocked(resolveGroupMountPolicy).mockReturnValue({
+      allowProjectMount: false,
+      allowGlobalMount: true,
+      allowAdditionalMounts: true,
+      groupWorkspaceMode: 'rw',
+    });
+    const mounts = buildVolumeMounts(
+      {
+        ...testGroup,
+        containerConfig: {
+          additionalMounts: [{ hostPath: '/allowed/file.txt' }],
+        },
+      },
+      false,
+    );
+    expect(mounts.some((m) => m.containerPath === '/workspace/global')).toBe(
+      true,
+    );
+    expect(
+      mounts.some((m) => m.containerPath === '/workspace/extra/file.txt'),
+    ).toBe(true);
+    expect(validateAdditionalMounts).toHaveBeenCalled();
+  });
+
+  it('supports read-only group workspace mode', () => {
+    vi.mocked(resolveGroupMountPolicy).mockReturnValue({
+      allowProjectMount: false,
+      allowGlobalMount: false,
+      allowAdditionalMounts: false,
+      groupWorkspaceMode: 'ro',
+    });
+    const mounts = buildVolumeMounts(testGroup, false);
+    expect(
+      mounts.find((m) => m.containerPath === '/workspace/group')?.readonly,
+    ).toBe(true);
   });
 });

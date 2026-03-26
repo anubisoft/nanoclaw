@@ -6,6 +6,10 @@ import { ASSISTANT_NAME, DATA_DIR, STORE_DIR } from './config.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
 import {
+  normalizeContainerConfig,
+  validateContainerConfigForRegistration,
+} from './mount-security.js';
+import {
   NewMessage,
   RegisteredGroup,
   ScheduledTask,
@@ -539,6 +543,31 @@ export function getAllSessions(): Record<string, string> {
 
 // --- Registered group accessors ---
 
+function parseStoredContainerConfig(
+  rawConfig: string | null,
+  jid: string,
+): RegisteredGroup['containerConfig'] | undefined {
+  if (!rawConfig) return undefined;
+
+  try {
+    const normalized = normalizeContainerConfig(JSON.parse(rawConfig));
+    if (normalized === null) {
+      logger.warn(
+        { jid },
+        'Ignoring registered group with invalid container_config',
+      );
+      return undefined;
+    }
+    return normalized;
+  } catch (err) {
+    logger.warn(
+      { jid, err },
+      'Ignoring registered group with unreadable container_config',
+    );
+    return undefined;
+  }
+}
+
 export function getRegisteredGroup(
   jid: string,
 ): (RegisteredGroup & { jid: string }) | undefined {
@@ -570,9 +599,7 @@ export function getRegisteredGroup(
     folder: row.folder,
     trigger: row.trigger_pattern,
     added_at: row.added_at,
-    containerConfig: row.container_config
-      ? JSON.parse(row.container_config)
-      : undefined,
+    containerConfig: parseStoredContainerConfig(row.container_config, row.jid),
     requiresTrigger:
       row.requires_trigger === null ? undefined : row.requires_trigger === 1,
     isMain: row.is_main === 1 ? true : undefined,
@@ -583,6 +610,21 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   if (!isValidGroupFolder(group.folder)) {
     throw new Error(`Invalid group folder "${group.folder}" for JID ${jid}`);
   }
+
+  const normalizedConfig = normalizeContainerConfig(group.containerConfig);
+  if (normalizedConfig === null) {
+    throw new Error(`Invalid containerConfig for JID ${jid}`);
+  }
+  const configValidation = validateContainerConfigForRegistration(
+    normalizedConfig,
+    group.isMain === true,
+  );
+  if (!configValidation.valid) {
+    throw new Error(
+      `Invalid containerConfig for JID ${jid}: ${configValidation.reason}`,
+    );
+  }
+
   db.prepare(
     `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -592,7 +634,7 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
     group.folder,
     group.trigger,
     group.added_at,
-    group.containerConfig ? JSON.stringify(group.containerConfig) : null,
+    normalizedConfig ? JSON.stringify(normalizedConfig) : null,
     group.requiresTrigger === undefined ? 1 : group.requiresTrigger ? 1 : 0,
     group.isMain ? 1 : 0,
   );
@@ -623,9 +665,10 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
       folder: row.folder,
       trigger: row.trigger_pattern,
       added_at: row.added_at,
-      containerConfig: row.container_config
-        ? JSON.parse(row.container_config)
-        : undefined,
+      containerConfig: parseStoredContainerConfig(
+        row.container_config,
+        row.jid,
+      ),
       requiresTrigger:
         row.requires_trigger === null ? undefined : row.requires_trigger === 1,
       isMain: row.is_main === 1 ? true : undefined,

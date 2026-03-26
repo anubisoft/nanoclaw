@@ -26,7 +26,10 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
-import { validateAdditionalMounts } from './mount-security.js';
+import {
+  resolveGroupMountPolicy,
+  validateAdditionalMounts,
+} from './mount-security.js';
 import {
   chownPathToAgentRecursiveIfRoot,
   agentContainerUidGid,
@@ -64,15 +67,17 @@ interface VolumeMount {
   readonly: boolean;
 }
 
-function buildVolumeMounts(
+export function buildVolumeMounts(
   group: RegisteredGroup,
   isMain: boolean,
 ): VolumeMount[] {
   const mounts: VolumeMount[] = [];
   const projectRoot = process.cwd();
   const groupDir = resolveGroupFolderPath(group.folder);
+  const mountPolicy = resolveGroupMountPolicy(group.containerConfig, isMain);
+  const groupReadonly = mountPolicy.groupWorkspaceMode === 'ro';
 
-  if (isMain) {
+  if (mountPolicy.allowProjectMount) {
     // Main gets the project root read-only. Writable paths the agent needs
     // (group folder, IPC, .claude/) are mounted separately below.
     // Read-only prevents the agent from modifying host application code
@@ -99,20 +104,20 @@ function buildVolumeMounts(
     mounts.push({
       hostPath: groupDir,
       containerPath: '/workspace/group',
-      readonly: false,
+      readonly: groupReadonly,
     });
   } else {
     // Other groups only get their own folder
     mounts.push({
       hostPath: groupDir,
       containerPath: '/workspace/group',
-      readonly: false,
+      readonly: groupReadonly,
     });
 
     // Global memory directory (read-only for non-main)
     // Only directory mounts are supported, not file mounts
     const globalDir = path.join(GROUPS_DIR, 'global');
-    if (fs.existsSync(globalDir)) {
+    if (mountPolicy.allowGlobalMount && fs.existsSync(globalDir)) {
       mounts.push({
         hostPath: globalDir,
         containerPath: '/workspace/global',
@@ -217,11 +222,15 @@ function buildVolumeMounts(
   });
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
-  if (group.containerConfig?.additionalMounts) {
+  if (
+    mountPolicy.allowAdditionalMounts &&
+    group.containerConfig?.additionalMounts
+  ) {
     const validatedMounts = validateAdditionalMounts(
       group.containerConfig.additionalMounts,
       group.name,
       isMain,
+      mountPolicy,
     );
     mounts.push(...validatedMounts);
   }

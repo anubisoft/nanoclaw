@@ -12,7 +12,13 @@ import path from 'path';
 import pino from 'pino';
 
 import { MOUNT_ALLOWLIST_PATH } from './config.js';
-import { AdditionalMount, AllowedRoot, MountAllowlist } from './types.js';
+import {
+  AdditionalMount,
+  AllowedRoot,
+  ContainerConfig,
+  GroupMountPolicy,
+  MountAllowlist,
+} from './types.js';
 
 const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
@@ -177,6 +183,8 @@ function findAllowedRoot(
   realPath: string,
   allowedRoots: AllowedRoot[],
 ): AllowedRoot | null {
+  let bestMatch: { root: AllowedRoot; length: number } | null = null;
+
   for (const root of allowedRoots) {
     const expandedRoot = expandPath(root.path);
     const realRoot = getRealPath(expandedRoot);
@@ -189,11 +197,13 @@ function findAllowedRoot(
     // Check if realPath is under realRoot
     const relative = path.relative(realRoot, realPath);
     if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
-      return root;
+      if (bestMatch === null || realRoot.length > bestMatch.length) {
+        bestMatch = { root, length: realRoot.length };
+      }
     }
   }
 
-  return null;
+  return bestMatch?.root ?? null;
 }
 
 /**
@@ -226,6 +236,196 @@ export interface MountValidationResult {
   effectiveReadonly?: boolean;
 }
 
+export interface ResolvedGroupMountPolicy {
+  allowProjectMount: boolean;
+  allowGlobalMount: boolean;
+  allowAdditionalMounts: boolean;
+  groupWorkspaceMode: 'rw' | 'ro';
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isValidGroupWorkspaceMode(
+  value: unknown,
+): value is ResolvedGroupMountPolicy['groupWorkspaceMode'] {
+  return value === 'rw' || value === 'ro';
+}
+
+function normalizeMountPolicy(
+  value: unknown,
+): GroupMountPolicy | undefined | null {
+  if (value === undefined) return undefined;
+  if (!isPlainObject(value)) return null;
+
+  const policy: GroupMountPolicy = {};
+
+  if (
+    value.allowProjectMount !== undefined &&
+    typeof value.allowProjectMount !== 'boolean'
+  ) {
+    return null;
+  }
+  if (
+    value.allowGlobalMount !== undefined &&
+    typeof value.allowGlobalMount !== 'boolean'
+  ) {
+    return null;
+  }
+  if (
+    value.allowAdditionalMounts !== undefined &&
+    typeof value.allowAdditionalMounts !== 'boolean'
+  ) {
+    return null;
+  }
+  if (
+    value.groupWorkspaceMode !== undefined &&
+    !isValidGroupWorkspaceMode(value.groupWorkspaceMode)
+  ) {
+    return null;
+  }
+
+  if (value.allowProjectMount !== undefined) {
+    policy.allowProjectMount = value.allowProjectMount;
+  }
+  if (value.allowGlobalMount !== undefined) {
+    policy.allowGlobalMount = value.allowGlobalMount;
+  }
+  if (value.allowAdditionalMounts !== undefined) {
+    policy.allowAdditionalMounts = value.allowAdditionalMounts;
+  }
+  if (value.groupWorkspaceMode !== undefined) {
+    policy.groupWorkspaceMode = value.groupWorkspaceMode;
+  }
+
+  return policy;
+}
+
+function normalizeAdditionalMount(value: unknown): AdditionalMount | null {
+  if (!isPlainObject(value)) return null;
+  if (typeof value.hostPath !== 'string' || value.hostPath.trim() === '') {
+    return null;
+  }
+  if (
+    value.containerPath !== undefined &&
+    (typeof value.containerPath !== 'string' ||
+      value.containerPath.trim() === '')
+  ) {
+    return null;
+  }
+  if (value.readonly !== undefined && typeof value.readonly !== 'boolean') {
+    return null;
+  }
+
+  return {
+    hostPath: value.hostPath,
+    containerPath: value.containerPath,
+    readonly: value.readonly,
+  };
+}
+
+export function normalizeContainerConfig(
+  value: unknown,
+): ContainerConfig | undefined | null {
+  if (value === undefined || value === null) return undefined;
+  if (!isPlainObject(value)) return null;
+
+  const mountPolicy = normalizeMountPolicy(value.mountPolicy);
+  if (mountPolicy === null) return null;
+
+  let additionalMounts: AdditionalMount[] | undefined;
+  if (value.additionalMounts !== undefined) {
+    if (!Array.isArray(value.additionalMounts)) return null;
+    additionalMounts = [];
+    for (const mount of value.additionalMounts) {
+      const normalized = normalizeAdditionalMount(mount);
+      if (normalized === null) return null;
+      additionalMounts.push(normalized);
+    }
+  }
+
+  let timeout: number | undefined;
+  if (value.timeout !== undefined) {
+    if (
+      typeof value.timeout !== 'number' ||
+      !Number.isFinite(value.timeout) ||
+      value.timeout <= 0
+    ) {
+      return null;
+    }
+    timeout = value.timeout;
+  }
+
+  return {
+    ...(additionalMounts ? { additionalMounts } : {}),
+    ...(mountPolicy ? { mountPolicy } : {}),
+    ...(timeout !== undefined ? { timeout } : {}),
+  };
+}
+
+export function resolveGroupMountPolicy(
+  config: ContainerConfig | undefined,
+  isMain: boolean,
+): ResolvedGroupMountPolicy {
+  const policy = config?.mountPolicy;
+
+  return {
+    allowProjectMount: isMain ? policy?.allowProjectMount !== false : false,
+    allowGlobalMount: policy?.allowGlobalMount === true,
+    allowAdditionalMounts: isMain
+      ? policy?.allowAdditionalMounts !== false
+      : policy?.allowAdditionalMounts === true,
+    groupWorkspaceMode: policy?.groupWorkspaceMode ?? 'rw',
+  };
+}
+
+export function validateContainerConfigForRegistration(
+  config: ContainerConfig | undefined,
+  isMain: boolean,
+): { valid: true } | { valid: false; reason: string } {
+  if (!config) return { valid: true };
+
+  const policy = resolveGroupMountPolicy(config, isMain);
+
+  if (!isMain && config.mountPolicy?.allowProjectMount === true) {
+    return {
+      valid: false,
+      reason: 'Non-main groups cannot mount /workspace/project',
+    };
+  }
+
+  if (
+    config.additionalMounts &&
+    config.additionalMounts.length > 0 &&
+    !policy.allowAdditionalMounts
+  ) {
+    return {
+      valid: false,
+      reason:
+        'additionalMounts requested but this group policy does not allow additional mounts',
+    };
+  }
+
+  if (config.additionalMounts && config.additionalMounts.length > 0) {
+    const validated = validateAdditionalMounts(
+      config.additionalMounts,
+      'registration',
+      isMain,
+      policy,
+    );
+    if (validated.length !== config.additionalMounts.length) {
+      return {
+        valid: false,
+        reason:
+          'One or more additionalMounts were rejected by mount policy or deployment allowlist',
+      };
+    }
+  }
+
+  return { valid: true };
+}
+
 /**
  * Validate a single additional mount against the allowlist.
  * Returns validation result with reason.
@@ -233,7 +433,15 @@ export interface MountValidationResult {
 export function validateMount(
   mount: AdditionalMount,
   isMain: boolean,
+  policy: ResolvedGroupMountPolicy = resolveGroupMountPolicy(undefined, isMain),
 ): MountValidationResult {
+  if (!policy.allowAdditionalMounts) {
+    return {
+      allowed: false,
+      reason: 'Group policy does not allow additional mounts',
+    };
+  }
+
   const allowlist = loadMountAllowlist();
 
   // If no allowlist, block all additional mounts
@@ -337,24 +545,47 @@ export function validateAdditionalMounts(
   mounts: AdditionalMount[],
   groupName: string,
   isMain: boolean,
+  policy: ResolvedGroupMountPolicy = resolveGroupMountPolicy(undefined, isMain),
 ): Array<{
   hostPath: string;
   containerPath: string;
   readonly: boolean;
 }> {
+  if (!policy.allowAdditionalMounts) {
+    logger.warn(
+      { group: groupName },
+      'Additional mounts blocked by group mount policy',
+    );
+    return [];
+  }
+
   const validatedMounts: Array<{
     hostPath: string;
     containerPath: string;
     readonly: boolean;
   }> = [];
+  const seenContainerPaths = new Set<string>();
 
   for (const mount of mounts) {
-    const result = validateMount(mount, isMain);
+    const result = validateMount(mount, isMain, policy);
 
     if (result.allowed) {
+      const fullContainerPath = `/workspace/extra/${result.resolvedContainerPath}`;
+      if (seenContainerPaths.has(fullContainerPath)) {
+        logger.warn(
+          {
+            group: groupName,
+            requestedPath: mount.hostPath,
+            containerPath: result.resolvedContainerPath,
+          },
+          'Additional mount REJECTED due to container path collision',
+        );
+        continue;
+      }
+      seenContainerPaths.add(fullContainerPath);
       validatedMounts.push({
         hostPath: result.realHostPath!,
-        containerPath: `/workspace/extra/${result.resolvedContainerPath}`,
+        containerPath: fullContainerPath,
         readonly: result.effectiveReadonly!,
       });
 
@@ -416,4 +647,10 @@ export function generateAllowlistTemplate(): string {
   };
 
   return JSON.stringify(template, null, 2);
+}
+
+/** @internal - test helper */
+export function _resetMountAllowlistCacheForTests(): void {
+  cachedAllowlist = null;
+  allowlistLoadError = null;
 }

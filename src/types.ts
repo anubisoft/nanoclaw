@@ -4,6 +4,17 @@ export interface AdditionalMount {
   readonly?: boolean; // Default: true for safety
 }
 
+export interface GroupMountPolicy {
+  // Main-only mount of the project tree at /workspace/project
+  allowProjectMount?: boolean;
+  // Shared cross-group memory mount at /workspace/global
+  allowGlobalMount?: boolean;
+  // Whether /workspace/extra/* mounts are permitted for this group
+  allowAdditionalMounts?: boolean;
+  // Future-proof group working directory mode
+  groupWorkspaceMode?: 'rw' | 'ro';
+}
+
 /**
  * Mount Allowlist - Security configuration for additional mounts
  * This file should be stored at ~/.config/nanoclaw/mount-allowlist.json
@@ -29,6 +40,7 @@ export interface AllowedRoot {
 
 export interface ContainerConfig {
   additionalMounts?: AdditionalMount[];
+  mountPolicy?: GroupMountPolicy;
   timeout?: number; // Default: 300000 (5 minutes)
 }
 

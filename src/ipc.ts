@@ -9,6 +9,10 @@ import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
+import {
+  normalizeContainerConfig,
+  validateContainerConfigForRegistration,
+} from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
@@ -449,13 +453,36 @@ export async function processTaskIpc(
           );
           break;
         }
+        const normalizedConfig = normalizeContainerConfig(data.containerConfig);
+        if (normalizedConfig === null) {
+          logger.warn(
+            { sourceGroup, folder: data.folder },
+            'Invalid register_group request - malformed containerConfig',
+          );
+          break;
+        }
+        const configValidation = validateContainerConfigForRegistration(
+          normalizedConfig,
+          false,
+        );
+        if (!configValidation.valid) {
+          logger.warn(
+            {
+              sourceGroup,
+              folder: data.folder,
+              reason: configValidation.reason,
+            },
+            'Invalid register_group request - unsafe containerConfig',
+          );
+          break;
+        }
         // Defense in depth: agent cannot set isMain via IPC
         deps.registerGroup(data.jid, {
           name: data.name,
           folder: data.folder,
           trigger: data.trigger,
           added_at: new Date().toISOString(),
-          containerConfig: data.containerConfig,
+          containerConfig: normalizedConfig,
           requiresTrigger: data.requiresTrigger,
         });
       } else {

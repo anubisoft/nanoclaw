@@ -676,4 +676,24 @@ describe('register_group success', () => {
 
     expect(getRegisteredGroup('partial@g.us')).toBeUndefined();
   });
+
+  it('register_group rejects unsafe additional mounts for non-main groups', async () => {
+    await processTaskIpc(
+      {
+        type: 'register_group',
+        jid: 'unsafe@g.us',
+        name: 'Unsafe Group',
+        folder: 'unsafe-group',
+        trigger: '@Andy',
+        containerConfig: {
+          additionalMounts: [{ hostPath: '/tmp/secret' }],
+        },
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+
+    expect(getRegisteredGroup('unsafe@g.us')).toBeUndefined();
+  });
 });
