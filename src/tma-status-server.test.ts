@@ -56,6 +56,7 @@ vi.mock('./channels/registry.js', () => ({
 
 vi.mock('./config.js', () => ({
   ASSISTANT_NAME: 'TestAssistant',
+  STORE_DIR: '/tmp/nanoclaw-test-store',
 }));
 
 function allocatePort(): Promise<number> {
@@ -125,6 +126,7 @@ describe('tma-status-server', () => {
     delete process.env.NANOCLAW_TMA_STATUS_PORT;
     delete process.env.NANOCLAW_TMA_STATUS_SECRET;
     vi.resetModules();
+    vi.doMock('./env.js', () => ({ readEnvFile: vi.fn(() => ({})) }));
     const { startTmaStatusServer } = await import('./tma-status-server.js');
     const s = await startTmaStatusServer();
     expect(s).toBeNull();

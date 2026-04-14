@@ -44,6 +44,7 @@ vi.mock('../transcription.js', () => ({
 vi.mock('../config.js', () => ({
   ASSISTANT_NAME: 'Andy',
   TRIGGER_PATTERN: /^@Andy\b/i,
+  STORE_DIR: '/tmp/nanoclaw-test-store',
 }));
 
 // Mock logger
