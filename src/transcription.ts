@@ -11,6 +11,36 @@ function whisperUploadName(original: string): string {
 }
 
 /**
+ * Some gateways return HTTP/HTML error bodies with a 200-style Whisper-shaped payload,
+ * or the API echoes a short auth string in `text`. Treat those as failed transcription
+ * so we do not feed the assistant fake "user speech" or TTS it back on Telegram.
+ */
+export function isLikelyNonSpeechTranscript(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  const lower = t.toLowerCase().replace(/\.+$/, '').trim();
+  const exact = new Set([
+    'not logged in',
+    'please log in',
+    'log in to continue',
+    'login required',
+    'sign in required',
+    'you must log in',
+    'invalid api key',
+    'authentication failed',
+    'access denied',
+  ]);
+  if (exact.has(lower)) return true;
+  // Short blobs that start like a login interstitial (not normal dictation).
+  if (t.length <= 160) {
+    if (lower.startsWith('not logged in')) return true;
+    if (lower.startsWith('please log in')) return true;
+    if (lower.startsWith('you must log in')) return true;
+  }
+  return false;
+}
+
+/**
  * Transcribe an audio buffer using OpenAI Whisper.
  *
  * Returns the transcript text, or null if transcription is unavailable
@@ -37,7 +67,15 @@ export async function transcribeFromBuffer(
 
     const text = (result as { text?: string }).text ?? '';
     if (!text) return null;
-    return text.trim();
+    const trimmed = text.trim();
+    if (isLikelyNonSpeechTranscript(trimmed)) {
+      logger.warn(
+        { preview: trimmed.slice(0, 200) },
+        'Whisper transcript rejected (proxy/auth noise, not speech)',
+      );
+      return null;
+    }
+    return trimmed;
   } catch (err) {
     if (err instanceof APIConnectionError) {
       const cause =
