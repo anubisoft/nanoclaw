@@ -17,6 +17,12 @@ describe('isLikelyNonSpeechTranscript', () => {
     ).toBe(true);
   });
 
+  it('rejects /login gateway copy without leading not logged in', () => {
+    expect(isLikelyNonSpeechTranscript('Please /login to continue.')).toBe(
+      true,
+    );
+  });
+
   it('allows normal speech', () => {
     expect(isLikelyNonSpeechTranscript('Hello, can you hear me?')).toBe(false);
     expect(

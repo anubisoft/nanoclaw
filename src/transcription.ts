@@ -37,6 +37,17 @@ export function isLikelyNonSpeechTranscript(text: string): boolean {
     if (lower.startsWith('please log in')) return true;
     if (lower.startsWith('you must log in')) return true;
   }
+  // Gateway copy that mentions Telegram's informational /login command (not user speech).
+  if (t.length <= 200 && lower.includes('/login')) {
+    if (
+      lower.includes('not logged') ||
+      lower.includes('please') ||
+      lower.includes('must log') ||
+      lower.includes('need to log')
+    ) {
+      return true;
+    }
+  }
   return false;
 }
 

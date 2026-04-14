@@ -199,6 +199,7 @@ export class TelegramChannel implements Channel {
     this.bot.command('login', (ctx) => {
       ctx.reply(
         [
+          'This command only shows help — it does not log you in.',
           'Claude sign-in is configured on the server, not in Telegram.',
           '',
           'Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN for the NanoClaw process (Compose env_file is fine). Restart nanoclaw after changing secrets.',
