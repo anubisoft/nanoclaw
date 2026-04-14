@@ -1,27 +1,9 @@
-import OpenAI from 'openai';
-
 import { logger } from './logger.js';
 import { readEnvFile } from './env.js';
+import { getHostOpenAIClient } from './openai-host-client.js';
 import { isTtsVoice, readSettings, type TtsVoice } from './settings.js';
 
 const DEFAULT_VOICE: TtsVoice = 'ash';
-
-let openaiClient: OpenAI | null = null;
-
-function getClient(): OpenAI | null {
-  if (openaiClient) return openaiClient;
-
-  const envVars = readEnvFile(['OPENAI_API_KEY']);
-  const apiKey = process.env.OPENAI_API_KEY || envVars.OPENAI_API_KEY;
-
-  if (!apiKey) {
-    logger.debug('OPENAI_API_KEY not set; TTS disabled');
-    return null;
-  }
-
-  openaiClient = new OpenAI({ apiKey });
-  return openaiClient;
-}
 
 function getVoice(): TtsVoice {
   const stored = readSettings().ttsVoice;
@@ -38,10 +20,10 @@ function getVoice(): TtsVoice {
  * Convert text to speech using OpenAI TTS.
  *
  * Returns an MP3 audio buffer suitable for Telegram sendVoice,
- * or null if TTS is unavailable (no API key, error, etc.).
+ * or null if TTS is unavailable (no API key / OneCLI proxy, error, etc.).
  */
 export async function synthesizeSpeech(text: string): Promise<Buffer | null> {
-  const client = getClient();
+  const client = await getHostOpenAIClient();
   if (!client) return null;
 
   try {

@@ -40,6 +40,11 @@ vi.mock('../transcription.js', () => ({
     transcribeFromBufferMock(...args),
 }));
 
+const synthesizeSpeechMock = vi.fn();
+vi.mock('../tts.js', () => ({
+  synthesizeSpeech: (...args: [string]) => synthesizeSpeechMock(...args),
+}));
+
 // Mock config
 vi.mock('../config.js', () => ({
   ASSISTANT_NAME: 'Andy',
@@ -63,46 +68,51 @@ type Handler = (...args: any[]) => any;
 
 const botRef = vi.hoisted(() => ({ current: null as any }));
 
-vi.mock('grammy', () => ({
-  Bot: class MockBot {
-    token: string;
-    commandHandlers = new Map<string, Handler>();
-    filterHandlers = new Map<string, Handler[]>();
-    errorHandler: Handler | null = null;
+vi.mock('grammy', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('grammy')>();
+  return {
+    ...actual,
+    Bot: class MockBot {
+      token: string;
+      commandHandlers = new Map<string, Handler>();
+      filterHandlers = new Map<string, Handler[]>();
+      errorHandler: Handler | null = null;
 
-    api = {
-      sendMessage: vi.fn().mockResolvedValue(undefined),
-      sendChatAction: vi.fn().mockResolvedValue(undefined),
-      setChatMenuButton: vi.fn().mockResolvedValue(true),
-      getFile: vi.fn().mockResolvedValue({ file_path: 'voice/test.ogg' }),
-    };
+      api = {
+        sendMessage: vi.fn().mockResolvedValue(undefined),
+        sendVoice: vi.fn().mockResolvedValue(undefined),
+        sendChatAction: vi.fn().mockResolvedValue(undefined),
+        setChatMenuButton: vi.fn().mockResolvedValue(true),
+        getFile: vi.fn().mockResolvedValue({ file_path: 'voice/test.ogg' }),
+      };
 
-    constructor(token: string) {
-      this.token = token;
-      botRef.current = this;
-    }
+      constructor(token: string) {
+        this.token = token;
+        botRef.current = this;
+      }
 
-    command(name: string, handler: Handler) {
-      this.commandHandlers.set(name, handler);
-    }
+      command(name: string, handler: Handler) {
+        this.commandHandlers.set(name, handler);
+      }
 
-    on(filter: string, handler: Handler) {
-      const existing = this.filterHandlers.get(filter) || [];
-      existing.push(handler);
-      this.filterHandlers.set(filter, existing);
-    }
+      on(filter: string, handler: Handler) {
+        const existing = this.filterHandlers.get(filter) || [];
+        existing.push(handler);
+        this.filterHandlers.set(filter, existing);
+      }
 
-    catch(handler: Handler) {
-      this.errorHandler = handler;
-    }
+      catch(handler: Handler) {
+        this.errorHandler = handler;
+      }
 
-    start(opts: { onStart: (botInfo: any) => void }) {
-      opts.onStart({ username: 'andy_ai_bot', id: 12345 });
-    }
+      start(opts: { onStart: (botInfo: any) => void }) {
+        opts.onStart({ username: 'andy_ai_bot', id: 12345 });
+      }
 
-    stop() {}
-  },
-}));
+      stop() {}
+    },
+  };
+});
 
 import { TelegramChannel, TelegramChannelOpts } from './telegram.js';
 
@@ -245,6 +255,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().filterHandlers.has('message:text')).toBe(true);
       expect(currentBot().filterHandlers.has('message:photo')).toBe(true);
       expect(currentBot().filterHandlers.has('message:video')).toBe(true);
+      expect(currentBot().filterHandlers.has('message:video_note')).toBe(true);
       expect(currentBot().filterHandlers.has('message:voice')).toBe(true);
       expect(currentBot().filterHandlers.has('message:audio')).toBe(true);
       expect(currentBot().filterHandlers.has('message:document')).toBe(true);
@@ -618,6 +629,40 @@ describe('TelegramChannel', () => {
       );
     });
 
+    it('stores video note with placeholder when transcription unavailable', async () => {
+      transcribeFromBufferMock.mockResolvedValueOnce(null);
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const ctx = createMediaCtx({
+        extra: { video_note: { file_id: 'vn-file-id' } },
+      });
+      await triggerMediaMessage('message:video_note', ctx);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'tg:100200300',
+        expect.objectContaining({ content: '[Video message]' }),
+      );
+    });
+
+    it('stores video note with transcript when available', async () => {
+      transcribeFromBufferMock.mockResolvedValueOnce('circle speech');
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const ctx = createMediaCtx({
+        extra: { video_note: { file_id: 'vn-file-id' } },
+      });
+      await triggerMediaMessage('message:video_note', ctx);
+
+      expect(opts.onMessage).toHaveBeenLastCalledWith(
+        'tg:100200300',
+        expect.objectContaining({ content: '[Video message: circle speech]' }),
+      );
+    });
+
     it('stores voice message with placeholder when transcription unavailable', async () => {
       transcribeFromBufferMock.mockResolvedValueOnce(null);
       const opts = createTestOpts();
@@ -835,6 +880,50 @@ describe('TelegramChannel', () => {
       await channel.sendMessage('tg:100200300', exactText);
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends TTS voice reply only after voice was transcribed', async () => {
+      transcribeFromBufferMock.mockResolvedValueOnce('hello there');
+      synthesizeSpeechMock.mockResolvedValue(Buffer.from('fake-mp3'));
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const ctx = createMediaCtx({
+        extra: { voice: { file_id: 'voice-file-id' } },
+      });
+      await triggerMediaMessage('message:voice', ctx);
+
+      await channel.sendMessage('tg:100200300', 'Agent says hi');
+
+      expect(synthesizeSpeechMock).toHaveBeenCalledWith('Agent says hi');
+      expect(currentBot().api.sendVoice).toHaveBeenCalled();
+      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('sends text reply when voice had no transcription (no TTS for error text)', async () => {
+      transcribeFromBufferMock.mockResolvedValueOnce(null);
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const ctx = createMediaCtx({
+        extra: { voice: { file_id: 'voice-file-id' } },
+      });
+      await triggerMediaMessage('message:voice', ctx);
+
+      await channel.sendMessage(
+        'tg:100200300',
+        'I could not get a transcription.',
+      );
+
+      expect(synthesizeSpeechMock).not.toHaveBeenCalled();
+      expect(currentBot().api.sendVoice).not.toHaveBeenCalled();
+      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+        '100200300',
+        'I could not get a transcription.',
+        expect.any(Object),
+      );
     });
 
     it('handles send failure gracefully', async () => {

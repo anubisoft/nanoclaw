@@ -323,6 +323,73 @@ export class TelegramChannel implements Channel {
 
     this.bot.on('message:photo', (ctx) => storeNonText(ctx, '[Photo]'));
     this.bot.on('message:video', (ctx) => storeNonText(ctx, '[Video]'));
+
+    // Round video messages carry speech like voice notes but are not `message:voice`.
+    this.bot.on('message:video_note', async (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group) return;
+
+      const timestamp = new Date(ctx.message.date * 1000).toISOString();
+      const senderName =
+        ctx.from?.first_name ||
+        ctx.from?.username ||
+        ctx.from?.id?.toString() ||
+        'Unknown';
+      const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
+
+      const isGroup =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        undefined,
+        'telegram',
+        isGroup,
+      );
+
+      let content = `[Video message]${caption}`;
+      try {
+        const note = (ctx.message as any).video_note;
+        if (note?.file_id) {
+          const file = await this.bot!.api.getFile(note.file_id);
+          if (file.file_path) {
+            const buffer = await this.downloadFile(file.file_path);
+            const inferredName =
+              file.file_path.split('/').pop() || 'video_note.mp4';
+            const transcript = await transcribeFromBuffer(buffer, inferredName);
+            if (transcript) {
+              content = `[Video message: ${transcript}]${caption}`;
+            }
+          }
+        }
+      } catch (err) {
+        logger.error(
+          {
+            err: err instanceof Error ? err.message : String(err),
+          },
+          'Telegram video note transcription failed',
+        );
+      }
+
+      this.opts.onMessage(chatJid, {
+        id: ctx.message.message_id.toString(),
+        chat_jid: chatJid,
+        sender: ctx.from?.id?.toString() || '',
+        sender_name: senderName,
+        content,
+        timestamp,
+        is_from_me: false,
+      });
+
+      // Voice-reply TTS only when we actually transcribed (avoid TTS for "couldn't transcribe" errors).
+      if (content.startsWith('[Video message:')) {
+        this.lastMessageWasVoice.add(chatJid);
+      } else {
+        this.lastMessageWasVoice.delete(chatJid);
+      }
+    });
+
     this.bot.on('message:voice', async (ctx) => {
       const chatJid = `tg:${ctx.chat.id}`;
       const group = this.opts.registeredGroups()[chatJid];
@@ -379,7 +446,12 @@ export class TelegramChannel implements Channel {
         is_from_me: false,
       });
 
-      this.lastMessageWasVoice.add(chatJid);
+      // Voice-reply TTS only when we actually transcribed (avoid TTS for "couldn't transcribe" errors).
+      if (content.startsWith('[Voice:')) {
+        this.lastMessageWasVoice.add(chatJid);
+      } else {
+        this.lastMessageWasVoice.delete(chatJid);
+      }
     });
 
     this.bot.on('message:audio', async (ctx) => {
