@@ -1,0 +1,29 @@
+# NanoClaw orchestrator for Docker Compose (sibling agent containers via mounted Docker socket).
+# Build: from repo root or nanoclaw/: docker build -f Dockerfile.compose -t nanoclaw:prod .
+
+FROM node:22-bookworm-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    docker.io \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+ENV HUSKY=0
+RUN corepack enable pnpm
+
+COPY package.json pnpm-lock.yaml ./
+# Native addons (better-sqlite3) must compile; --ignore-scripts breaks runtime ("Could not locate the bindings file").
+RUN pnpm install --frozen-lockfile
+
+COPY tsconfig.json ./
+COPY src ./src
+# Agent containers mount per-group copies from container/agent-runner/src; skills sync from container/skills.
+COPY container ./container
+RUN pnpm run build
+
+CMD ["node", "dist/index.js"]

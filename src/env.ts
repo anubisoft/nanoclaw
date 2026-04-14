@@ -10,12 +10,16 @@ import { logger } from './logger.js';
  */
 export function readEnvFile(keys: string[]): Record<string, string> {
   const envFile = path.join(process.cwd(), '.env');
-  let content: string;
+  let content = '';
   try {
     content = fs.readFileSync(envFile, 'utf-8');
   } catch (err) {
-    logger.debug({ err }, '.env file not found, using defaults');
-    return {};
+    // No disk .env (typical in Docker when secrets come from Compose env_file only).
+    // Still fall through so process.env merge below can populate keys.
+    logger.debug(
+      { err },
+      '.env file not found; will use process.env for missing keys',
+    );
   }
 
   const result: Record<string, string> = {};
@@ -36,6 +40,15 @@ export function readEnvFile(keys: string[]): Record<string, string> {
       value = value.slice(1, -1);
     }
     if (value) result[key] = value;
+  }
+
+  // Docker Compose (and similar) inject secrets via env_file into process.env,
+  // but the image often has no /app/.env on disk. Fall back so credential proxy
+  // and other readers still see ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN, etc.
+  for (const key of keys) {
+    if (!result[key] && process.env[key]) {
+      result[key] = process.env[key] as string;
+    }
   }
 
   return result;

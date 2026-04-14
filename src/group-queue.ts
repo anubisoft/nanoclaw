@@ -2,6 +2,7 @@ import { ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+import { chownPathToAgentIfRoot } from './agent-container-user.js';
 import { DATA_DIR, MAX_CONCURRENT_CONTAINERS } from './config.js';
 import { logger } from './logger.js';
 
@@ -171,6 +172,7 @@ export class GroupQueue {
       const tempPath = `${filepath}.tmp`;
       fs.writeFileSync(tempPath, JSON.stringify({ type: 'message', text }));
       fs.renameSync(tempPath, filepath);
+      chownPathToAgentIfRoot(filepath);
       return true;
     } catch {
       return false;
@@ -187,7 +189,9 @@ export class GroupQueue {
     const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
     try {
       fs.mkdirSync(inputDir, { recursive: true });
-      fs.writeFileSync(path.join(inputDir, '_close'), '');
+      const closePath = path.join(inputDir, '_close');
+      fs.writeFileSync(closePath, '');
+      chownPathToAgentIfRoot(closePath);
     } catch {
       // ignore
     }
