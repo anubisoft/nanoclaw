@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
+import { spawn } from 'child_process';
 
 // Sentinel markers must match container-runner.ts
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
@@ -71,9 +72,23 @@ vi.mock('./container-runtime.js', () => ({
 }));
 
 // Mock OneCLI SDK
+let injectOneCliProxyEnv = false;
 vi.mock('@onecli-sh/sdk', () => ({
   OneCLI: class {
-    applyContainerConfig = vi.fn().mockResolvedValue(true);
+    applyContainerConfig = vi
+      .fn()
+      .mockImplementation(async (args: string[]) => {
+        if (injectOneCliProxyEnv) {
+          args.push(
+            '--env',
+            'HTTPS_PROXY=http://x:test@host.docker.internal:10255',
+          );
+          args.push(
+            '--volume=/tmp/onecli-proxy-ca.pem:/tmp/onecli-gateway-ca.pem:ro',
+          );
+        }
+        return true;
+      });
     createAgent = vi.fn().mockResolvedValue({ id: 'test' });
     ensureAgent = vi
       .fn()
@@ -251,6 +266,7 @@ describe('container-runner timeout behavior', () => {
 describe('buildVolumeMounts mount policy', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    injectOneCliProxyEnv = false;
     vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
       const value = String(p);
       return (
@@ -324,5 +340,51 @@ describe('buildVolumeMounts mount policy', () => {
     expect(
       mounts.find((m) => m.containerPath === '/workspace/group')?.readonly,
     ).toBe(true);
+  });
+});
+
+describe('OneCLI proxy rewrites for host networking', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    injectOneCliProxyEnv = true;
+    fakeProc = createFakeProcess();
+    vi.mocked(fs.existsSync).mockImplementation((p: fs.PathLike) => {
+      const value = String(p);
+      return (
+        value === '/tmp/onecli-proxy-ca.pem' ||
+        value === '/tmp/nanoclaw-test-groups/global'
+      );
+    });
+    vi.mocked(fs.readdirSync).mockReturnValue([]);
+  });
+
+  it('rewrites proxy host and CA mount for sibling docker containers', async () => {
+    const runtime = await import('./container-runtime.js');
+    vi.spyOn(runtime, 'hostGatewayArgs').mockReturnValue(['--network=host']);
+
+    const resultPromise = runContainerAgent(
+      testGroup,
+      { ...testInput, isMain: true },
+      () => {},
+    );
+
+    setTimeout(() => {
+      fakeProc.emit('close', 1);
+    }, 0);
+    await resultPromise;
+
+    const spawnCall = vi.mocked(spawn).mock.calls.at(-1);
+    expect(spawnCall).toBeTruthy();
+    const args = (spawnCall?.[1] as string[]) ?? [];
+
+    expect(args).toContain('--network=host');
+    expect(args).toContain('HTTPS_PROXY=http://x:test@localhost:10255');
+    expect(args).toContain(
+      '--volume=/tmp/nanoclaw-test-data/onecli/proxy-ca.pem:/tmp/onecli-gateway-ca.pem:ro',
+    );
+    expect(fs.copyFileSync).toHaveBeenCalledWith(
+      '/tmp/onecli-proxy-ca.pem',
+      '/tmp/nanoclaw-test-data/onecli/proxy-ca.pem',
+    );
   });
 });

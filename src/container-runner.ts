@@ -69,6 +69,83 @@ interface VolumeMount {
   readonly: boolean;
 }
 
+function rewriteOneCliProxyHostForHostNetwork(args: string[]): void {
+  const usesHostNetwork = args.includes('--network=host');
+  if (!usesHostNetwork) return;
+  let replacementHost = '127.0.0.1';
+  try {
+    replacementHost = new URL(ONECLI_URL).hostname || replacementHost;
+  } catch {
+    // Keep loopback fallback when ONECLI_URL is not a valid URL.
+  }
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '-e' || arg === '--env') {
+      const envEntry = args[i + 1];
+      if (!envEntry) continue;
+      if (!envEntry.includes('host.docker.internal')) continue;
+      args[i + 1] = envEntry.replaceAll(
+        'host.docker.internal',
+        replacementHost,
+      );
+      i++;
+      continue;
+    }
+    if (arg.startsWith('--env=')) {
+      if (!arg.includes('host.docker.internal')) continue;
+      args[i] = arg.replaceAll('host.docker.internal', replacementHost);
+    }
+  }
+}
+
+function normalizeOneCliCaMountForSiblingDocker(
+  args: string[],
+  projectRoot: string,
+): void {
+  const stableCaPath = path.join(DATA_DIR, 'onecli', 'proxy-ca.pem');
+  for (let i = 0; i < args.length; i++) {
+    let mountSpec: string | null = null;
+    let specIndex = -1;
+    if (args[i] === '-v' || args[i] === '--volume') {
+      mountSpec = args[i + 1] ?? null;
+      specIndex = i + 1;
+      i++;
+    } else if (args[i].startsWith('--volume=')) {
+      mountSpec = args[i].slice('--volume='.length);
+      specIndex = i;
+    }
+    if (!mountSpec || !mountSpec.startsWith('/tmp/onecli-proxy-ca.pem:')) {
+      continue;
+    }
+
+    const firstColon = mountSpec.indexOf(':');
+    const secondColon = mountSpec.indexOf(':', firstColon + 1);
+    if (firstColon === -1 || secondColon === -1) continue;
+    const sourcePath = mountSpec.slice(0, firstColon);
+    const destPath = mountSpec.slice(firstColon + 1, secondColon);
+    const mode = mountSpec.slice(secondColon + 1);
+
+    if (!fs.existsSync(sourcePath)) {
+      logger.warn({ sourcePath }, 'OneCLI CA source path missing before mount');
+      continue;
+    }
+
+    fs.mkdirSync(path.dirname(stableCaPath), { recursive: true });
+    fs.copyFileSync(sourcePath, stableCaPath);
+
+    const translatedStablePath = translatePathForDockerCliHost(
+      stableCaPath,
+      projectRoot,
+    );
+    const rewritten = `${translatedStablePath}:${destPath}:${mode}`;
+    if (args[specIndex].startsWith('--volume=')) {
+      args[specIndex] = `--volume=${rewritten}`;
+    } else {
+      args[specIndex] = rewritten;
+    }
+  }
+}
+
 export function buildVolumeMounts(
   group: RegisteredGroup,
   isMain: boolean,
@@ -301,6 +378,10 @@ async function buildContainerArgs(
 
   // Runtime-specific args for host gateway resolution
   args.push(...hostGatewayArgs());
+  if (onecliApplied) {
+    rewriteOneCliProxyHostForHostNetwork(args);
+    normalizeOneCliCaMountForSiblingDocker(args, projectRoot);
+  }
 
   // Run as host user so bind-mounted files are accessible.
   // Skip when running as root (uid 0), as the container's node user (uid 1000),
