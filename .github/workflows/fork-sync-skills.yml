@@ -28,8 +28,12 @@ jobs:
     if: github.repository != 'qwibitai/nanoclaw'
     runs-on: ubuntu-latest
     steps:
+      # Optional: set APP_ID + APP_PRIVATE_KEY on the fork if GITHUB_TOKEN cannot
+      # push to main / skill branches (e.g. branch protection). Otherwise checkout
+      # uses the default workflow token.
       - uses: actions/create-github-app-token@v1
         id: app-token
+        if: ${{ secrets.APP_ID != '' && secrets.APP_PRIVATE_KEY != '' }}
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -37,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - uses: actions/setup-node@v4
         with:
