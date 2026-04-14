@@ -30,9 +30,7 @@ import {
 import {
   cleanupOrphans,
   ensureContainerRuntimeRunning,
-  PROXY_BIND_HOST,
 } from './container-runtime.js';
-import { startCredentialProxy } from './credential-proxy.js';
 import {
   getAllChats,
   getAllRegisteredGroups,
@@ -79,11 +77,6 @@ let sessions: Record<string, string> = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
 let messageLoopRunning = false;
-
-const CREDENTIAL_PROXY_PORT = parseInt(
-  process.env.CREDENTIAL_PROXY_PORT || '3001',
-  10,
-);
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
@@ -584,11 +577,6 @@ async function main(): Promise<void> {
   logger.info('Database initialized');
   loadState();
 
-  // Start credential proxy (containers route API calls through this)
-  const proxyServer = await startCredentialProxy(
-    CREDENTIAL_PROXY_PORT,
-    PROXY_BIND_HOST,
-  );
   const tmaStatusServer = await startTmaStatusServer();
 
   // Ensure OneCLI agents exist for all registered groups.
@@ -602,7 +590,6 @@ async function main(): Promise<void> {
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
-    proxyServer.close();
     tmaStatusServer?.close();
     await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();

@@ -3,7 +3,6 @@
  * All runtime-specific logic lives here so swapping runtimes means changing one file.
  */
 import { execSync } from 'child_process';
-import fs from 'fs';
 import os from 'os';
 
 import { logger } from './logger.js';
@@ -11,40 +10,11 @@ import { logger } from './logger.js';
 /** The container runtime binary name. */
 export const CONTAINER_RUNTIME_BIN = 'docker';
 
-/**
- * Hostname containers use to reach the host machine.
- * On Linux we use host networking, so containers connect via loopback.
- */
-export const CONTAINER_HOST_GATEWAY =
-  os.platform() === 'linux' ? '127.0.0.1' : 'host.docker.internal';
-
-/**
- * Address the credential proxy binds to.
- * Docker Desktop (macOS): 127.0.0.1 — the VM routes host.docker.internal to loopback.
- * Docker (Linux): bind to the docker0 bridge IP so only containers can reach it,
- *   falling back to 0.0.0.0 if the interface isn't found.
- */
-export const PROXY_BIND_HOST =
-  process.env.CREDENTIAL_PROXY_HOST || detectProxyBindHost();
-
-function detectProxyBindHost(): string {
-  if (os.platform() === 'darwin') return '127.0.0.1';
-
-  if (fs.existsSync('/proc/sys/fs/binfmt_misc/WSLInterop')) return '127.0.0.1';
-
-  const ifaces = os.networkInterfaces();
-  const docker0 = ifaces['docker0'];
-  if (docker0) {
-    const ipv4 = docker0.find((a) => a.family === 'IPv4');
-    if (ipv4) return ipv4.address;
-  }
-  return '0.0.0.0';
-}
 /** CLI args needed for the container to resolve the host gateway. */
 export function hostGatewayArgs(): string[] {
   // On Linux, use host networking so the container shares the host's network
-  // stack and can reach the credential proxy on localhost:3001 directly,
-  // bypassing any firewall rules that block the Docker bridge.
+  // stack and can reach host services (OneCLI gateway, TMA status, etc.)
+  // directly, bypassing any firewall rules that block the Docker bridge.
   if (os.platform() === 'linux') {
     return ['--network=host'];
   }
