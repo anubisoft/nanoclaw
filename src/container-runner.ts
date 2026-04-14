@@ -26,7 +26,18 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
-import { validateAdditionalMounts } from './mount-security.js';
+import {
+  resolveGroupMountPolicy,
+  validateAdditionalMounts,
+} from './mount-security.js';
+import {
+  chownPathToAgentRecursiveIfRoot,
+  agentContainerUidGid,
+} from './agent-container-user.js';
+import {
+  ensureDockerSiblingPathMappings,
+  translatePathForDockerCliHost,
+} from './docker-sibling-paths.js';
 import { RegisteredGroup } from './types.js';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
@@ -56,15 +67,17 @@ interface VolumeMount {
   readonly: boolean;
 }
 
-function buildVolumeMounts(
+export function buildVolumeMounts(
   group: RegisteredGroup,
   isMain: boolean,
 ): VolumeMount[] {
   const mounts: VolumeMount[] = [];
   const projectRoot = process.cwd();
   const groupDir = resolveGroupFolderPath(group.folder);
+  const mountPolicy = resolveGroupMountPolicy(group.containerConfig, isMain);
+  const groupReadonly = mountPolicy.groupWorkspaceMode === 'ro';
 
-  if (isMain) {
+  if (mountPolicy.allowProjectMount) {
     // Main gets the project root read-only. Writable paths the agent needs
     // (group folder, IPC, .claude/) are mounted separately below.
     // Read-only prevents the agent from modifying host application code
@@ -91,20 +104,20 @@ function buildVolumeMounts(
     mounts.push({
       hostPath: groupDir,
       containerPath: '/workspace/group',
-      readonly: false,
+      readonly: groupReadonly,
     });
   } else {
     // Other groups only get their own folder
     mounts.push({
       hostPath: groupDir,
       containerPath: '/workspace/group',
-      readonly: false,
+      readonly: groupReadonly,
     });
 
     // Global memory directory (read-only for non-main)
     // Only directory mounts are supported, not file mounts
     const globalDir = path.join(GROUPS_DIR, 'global');
-    if (fs.existsSync(globalDir)) {
+    if (mountPolicy.allowGlobalMount && fs.existsSync(globalDir)) {
       mounts.push({
         hostPath: globalDir,
         containerPath: '/workspace/global',
@@ -169,6 +182,8 @@ function buildVolumeMounts(
   fs.mkdirSync(path.join(groupIpcDir, 'messages'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'tasks'), { recursive: true });
   fs.mkdirSync(path.join(groupIpcDir, 'input'), { recursive: true });
+  chownPathToAgentRecursiveIfRoot(groupSessionsDir);
+  chownPathToAgentRecursiveIfRoot(groupIpcDir);
   mounts.push({
     hostPath: groupIpcDir,
     containerPath: '/workspace/ipc',
@@ -190,8 +205,15 @@ function buildVolumeMounts(
     group.folder,
     'agent-runner-src',
   );
-  if (!fs.existsSync(groupAgentRunnerDir) && fs.existsSync(agentRunnerSrc)) {
-    fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
+  if (fs.existsSync(agentRunnerSrc)) {
+    const hasFiles =
+      fs.existsSync(groupAgentRunnerDir) &&
+      fs.readdirSync(groupAgentRunnerDir).length > 0;
+    if (!hasFiles) {
+      fs.mkdirSync(groupAgentRunnerDir, { recursive: true });
+      fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
+    }
+    chownPathToAgentRecursiveIfRoot(groupAgentRunnerDir);
   }
   mounts.push({
     hostPath: groupAgentRunnerDir,
@@ -200,11 +222,15 @@ function buildVolumeMounts(
   });
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
-  if (group.containerConfig?.additionalMounts) {
+  if (
+    mountPolicy.allowAdditionalMounts &&
+    group.containerConfig?.additionalMounts
+  ) {
     const validatedMounts = validateAdditionalMounts(
       group.containerConfig.additionalMounts,
       group.name,
       isMain,
+      mountPolicy,
     );
     mounts.push(...validatedMounts);
   }
@@ -212,10 +238,13 @@ function buildVolumeMounts(
   return mounts;
 }
 
-function buildContainerArgs(
+async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
-): string[] {
+): Promise<string[]> {
+  await ensureDockerSiblingPathMappings();
+  const projectRoot = process.cwd();
+
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
   // Pass host timezone so container's local time matches the user's
@@ -238,24 +267,32 @@ function buildContainerArgs(
     args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
   }
 
+  // Pass GitHub PAT for the GitHub MCP server (if configured)
+  const githubPat = process.env.GITHUB_PAT;
+  if (githubPat) {
+    args.push('-e', `GITHUB_PERSONAL_ACCESS_TOKEN=${githubPat}`);
+  }
+
   // Runtime-specific args for host gateway resolution
   args.push(...hostGatewayArgs());
 
   // Run as host user so bind-mounted files are accessible.
   // Skip when running as root (uid 0), as the container's node user (uid 1000),
   // or when getuid is unavailable (native Windows without WSL).
+  const { uid: agentUid, gid: agentGid } = agentContainerUidGid();
   const hostUid = process.getuid?.();
-  const hostGid = process.getgid?.();
   if (hostUid != null && hostUid !== 0 && hostUid !== 1000) {
-    args.push('--user', `${hostUid}:${hostGid}`);
-    args.push('-e', 'HOME=/home/node');
+    args.push('--user', `${agentUid}:${agentGid}`);
+    // /home/node is not writable for arbitrary host uids; SDK still uses mounted /home/node/.claude
+    args.push('-e', 'HOME=/tmp');
   }
 
   for (const mount of mounts) {
+    const hostPath = translatePathForDockerCliHost(mount.hostPath, projectRoot);
     if (mount.readonly) {
-      args.push(...readonlyMountArgs(mount.hostPath, mount.containerPath));
+      args.push(...readonlyMountArgs(hostPath, mount.containerPath));
     } else {
-      args.push('-v', `${mount.hostPath}:${mount.containerPath}`);
+      args.push('-v', `${hostPath}:${mount.containerPath}`);
     }
   }
 
@@ -278,7 +315,7 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName);
+  const containerArgs = await buildContainerArgs(mounts, containerName);
 
   logger.debug(
     {

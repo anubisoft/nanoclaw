@@ -481,4 +481,29 @@ describe('registered group isMain', () => {
     expect(group).toBeDefined();
     expect(group.isMain).toBeUndefined();
   });
+
+  it('persists normalized containerConfig mount policy through set/get round-trip', () => {
+    setRegisteredGroup('group@g.us', {
+      name: 'Family Chat',
+      folder: 'whatsapp_family-chat',
+      trigger: '@Andy',
+      added_at: '2024-01-01T00:00:00.000Z',
+      containerConfig: {
+        timeout: 60000,
+        mountPolicy: {
+          allowGlobalMount: true,
+          groupWorkspaceMode: 'ro',
+        },
+      },
+    });
+
+    const groups = getAllRegisteredGroups();
+    expect(groups['group@g.us']?.containerConfig).toEqual({
+      timeout: 60000,
+      mountPolicy: {
+        allowGlobalMount: true,
+        groupWorkspaceMode: 'ro',
+      },
+    });
+  });
 });

@@ -4,10 +4,15 @@ import path from 'path';
 import { CronExpressionParser } from 'cron-parser';
 
 import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
+import { sendPoolMessage } from './channels/telegram.js';
 import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
+import {
+  normalizeContainerConfig,
+  validateContainerConfigForRegistration,
+} from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
@@ -81,7 +86,17 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   isMain ||
                   (targetGroup && targetGroup.folder === sourceGroup)
                 ) {
-                  await deps.sendMessage(data.chatJid, data.text);
+                  if (data.sender && data.chatJid.startsWith('tg:')) {
+                    const sent = await sendPoolMessage(
+                      data.chatJid,
+                      data.text,
+                      data.sender,
+                      sourceGroup,
+                    );
+                    if (!sent) await deps.sendMessage(data.chatJid, data.text);
+                  } else {
+                    await deps.sendMessage(data.chatJid, data.text);
+                  }
                   logger.info(
                     { chatJid: data.chatJid, sourceGroup },
                     'IPC message sent',
@@ -438,13 +453,36 @@ export async function processTaskIpc(
           );
           break;
         }
+        const normalizedConfig = normalizeContainerConfig(data.containerConfig);
+        if (normalizedConfig === null) {
+          logger.warn(
+            { sourceGroup, folder: data.folder },
+            'Invalid register_group request - malformed containerConfig',
+          );
+          break;
+        }
+        const configValidation = validateContainerConfigForRegistration(
+          normalizedConfig,
+          false,
+        );
+        if (!configValidation.valid) {
+          logger.warn(
+            {
+              sourceGroup,
+              folder: data.folder,
+              reason: configValidation.reason,
+            },
+            'Invalid register_group request - unsafe containerConfig',
+          );
+          break;
+        }
         // Defense in depth: agent cannot set isMain via IPC
         deps.registerGroup(data.jid, {
           name: data.name,
           folder: data.folder,
           trigger: data.trigger,
           added_at: new Date().toISOString(),
-          containerConfig: data.containerConfig,
+          containerConfig: normalizedConfig,
           requiresTrigger: data.requiresTrigger,
         });
       } else {
