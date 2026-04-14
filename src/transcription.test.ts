@@ -23,6 +23,15 @@ describe('isLikelyNonSpeechTranscript', () => {
     );
   });
 
+  it('rejects em-dash not logged in please run /login copy', () => {
+    expect(
+      isLikelyNonSpeechTranscript('Not logged in - Please run /login'),
+    ).toBe(true);
+    expect(
+      isLikelyNonSpeechTranscript('Not logged in — Please run /login'),
+    ).toBe(true);
+  });
+
   it('allows normal speech', () => {
     expect(isLikelyNonSpeechTranscript('Hello, can you hear me?')).toBe(false);
     expect(

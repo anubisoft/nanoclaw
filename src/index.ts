@@ -219,6 +219,22 @@ export function _setRegisteredGroups(
 }
 
 /**
+ * Telegram exposes `/login` as a help blurb; models often wrongly tell users to "run /login"
+ * for Anthropic errors. Prefix a hard policy so replies stay accurate.
+ */
+function appendTelegramLoginPolicy(chatJid: string, prompt: string): string {
+  if (!chatJid.startsWith('tg:')) return prompt;
+  return (
+    '<nanoclaw_telegram_policy>\n' +
+    'You are replying on Telegram. Do not tell the user they are "not logged in" or to "run /login", "use /login", "please run /login", or any similar phrase for Claude, Anthropic, or model/tool authentication failures. ' +
+    'The /login command only prints how the **server operator** configured API keys—it does not sign users in. Chat users cannot fix container auth from Telegram. ' +
+    'If credentials failed, describe what the **operator** should verify on the host (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, OneCLI, etc.).\n' +
+    '</nanoclaw_telegram_policy>\n\n' +
+    prompt
+  );
+}
+
+/**
  * Process all pending messages for a group.
  * Called by the GroupQueue when it's this group's turn.
  */
@@ -255,7 +271,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (!hasTrigger) return true;
   }
 
-  const prompt = formatMessages(missedMessages, TIMEZONE);
+  const prompt = appendTelegramLoginPolicy(
+    chatJid,
+    formatMessages(missedMessages, TIMEZONE),
+  );
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
@@ -516,7 +535,10 @@ async function startMessageLoop(): Promise<void> {
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
-          const formatted = formatMessages(messagesToSend, TIMEZONE);
+          const formatted = appendTelegramLoginPolicy(
+            chatJid,
+            formatMessages(messagesToSend, TIMEZONE),
+          );
 
           if (queue.sendMessage(chatJid, formatted)) {
             logger.debug(

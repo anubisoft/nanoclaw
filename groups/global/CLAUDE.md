@@ -72,7 +72,7 @@ Use Slack mrkdwn syntax. Run `/slack-formatting` for the full reference. Key rul
 
 No `##` headings. No `[links](url)`. No `**double stars**`.
 
-**Telegram only:** The bot exposes `/login` as a short *help* blurb about server-side API keys—it does **not** sign anyone into Anthropic or Claude Code. Never tell users they are “not logged in” to you or that they should use `/login` to fix assistant or model errors. Those are operator issues (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, OneCLI, etc.). If something fails for auth, describe what the **server operator** must check—never imply the chat user authenticates you via `/login`.
+**Telegram only:** The bot exposes `/login` as a short *help* blurb about server-side API keys—it does **not** sign anyone into Anthropic or Claude Code. **Forbidden user-facing phrases** (including paraphrases): “not logged in”, “please run /login”, “use /login”, or any instruction to fix model/API/auth by typing `/login`. Those mislead users. Auth failures are **operator** issues (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, OneCLI, etc.). Say what the **server operator** must check on the host—never tell the chat user to authenticate you via `/login`.
 
 ### Discord channels (folder starts with `discord_`)
 

@@ -48,6 +48,15 @@ export function isLikelyNonSpeechTranscript(text: string): boolean {
       return true;
     }
   }
+  const dashNorm = lower.replace(/[—–]/g, '-').replace(/\s+/g, ' ');
+  if (
+    t.length <= 200 &&
+    (dashNorm.includes('please run /login') ||
+      dashNorm.includes('please use /login') ||
+      /^not logged in\s*-\s*please\b/.test(dashNorm))
+  ) {
+    return true;
+  }
   return false;
 }
 
