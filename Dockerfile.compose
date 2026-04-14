@@ -8,6 +8,7 @@ RUN apt-get update \
     python3 \
     make \
     g++ \
+    sqlite3 \
     docker.io \
   && rm -rf /var/lib/apt/lists/*
 
@@ -22,8 +23,10 @@ RUN pnpm install --frozen-lockfile
 
 COPY tsconfig.json ./
 COPY src ./src
+COPY scripts ./scripts
 # Agent containers mount per-group copies from container/agent-runner/src; skills sync from container/skills.
 COPY container ./container
+RUN chmod +x ./scripts/cleanup-sessions.sh
 RUN pnpm run build
 
 CMD ["node", "dist/index.js"]

@@ -104,10 +104,13 @@ export function buildVolumeMounts(
 
     // Main gets writable access to the store (SQLite DB) so it can
     // query and write to the database directly.
+    //
+    // Keep this mount OUTSIDE /workspace/project: Docker can fail to create
+    // nested rw mounts under a ro parent on some runtimes/overlay setups.
     const storeDir = path.join(projectRoot, 'store');
     mounts.push({
       hostPath: storeDir,
-      containerPath: '/workspace/project/store',
+      containerPath: '/workspace/store',
       readonly: false,
     });
 
