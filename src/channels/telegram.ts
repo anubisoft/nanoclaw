@@ -138,6 +138,8 @@ export class TelegramChannel implements Channel {
   private bot: Bot | null = null;
   private opts: TelegramChannelOpts;
   private botToken: string;
+  /** Set in `start.onStart` — used to detect `my_chat_member` updates for this bot. */
+  private telegramBotUserId: number | null = null;
   private lastMessageWasVoice = new Set<string>();
 
   constructor(botToken: string, opts: TelegramChannelOpts) {
@@ -174,6 +176,52 @@ export class TelegramChannel implements Channel {
   async connect(): Promise<void> {
     this.bot = new Bot(this.botToken);
 
+    const cycletrakEnv = readEnvFile([
+      'CYCLETRAK_MINI_APP_URL',
+      'CYCLETRAK_TELEGRAM_GROUP_CHAT_ID',
+    ]);
+    const cycletrakMiniAppUrl = (
+      process.env.CYCLETRAK_MINI_APP_URL?.trim() ||
+      cycletrakEnv.CYCLETRAK_MINI_APP_URL?.trim() ||
+      'https://cycletrak.anubisoft.ai/'
+    ).replace(/\/?$/, '/');
+    const cycletrakGroupRaw =
+      process.env.CYCLETRAK_TELEGRAM_GROUP_CHAT_ID?.trim() ||
+      cycletrakEnv.CYCLETRAK_TELEGRAM_GROUP_CHAT_ID?.trim() ||
+      '';
+    const cycletrakGroupChatId = cycletrakGroupRaw
+      ? Number(cycletrakGroupRaw)
+      : NaN;
+    const cycletrakGroupConfigured = Number.isFinite(cycletrakGroupChatId);
+
+    const cycletrakWelcomeSent = new Set<number>();
+
+    const sendCycletrakMiniAppButton = async (
+      chatId: number,
+    ): Promise<void> => {
+      await this.bot!.api.sendMessage(
+        chatId,
+        [
+          '*CycleTrak* — bike service tracker for this group.',
+          '',
+          'Tap the button below to open the Mini App (HTTPS domain must be allowed in BotFather).',
+        ].join('\n'),
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: 'Open CycleTrak',
+                  web_app: { url: cycletrakMiniAppUrl },
+                },
+              ],
+            ],
+          },
+        },
+      );
+    };
+
     // Command to get chat ID (useful for registration)
     this.bot.command('chatid', (ctx) => {
       const chatId = ctx.chat.id;
@@ -205,6 +253,58 @@ export class TelegramChannel implements Channel {
           'Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN for the NanoClaw process (Compose env_file is fine). Restart nanoclaw after changing secrets.',
         ].join('\n'),
       );
+    });
+
+    // CycleTrak Mini App (supergroup only when CYCLETRAK_TELEGRAM_GROUP_CHAT_ID is set)
+    this.bot.command('cycletrak', async (ctx) => {
+      if (!cycletrakGroupConfigured) {
+        await ctx.reply(
+          [
+            'CycleTrak Mini App is not wired to a group yet.',
+            'Set `CYCLETRAK_TELEGRAM_GROUP_CHAT_ID` to this chat ID (use /chatid here), and optionally `CYCLETRAK_MINI_APP_URL`, then restart NanoClaw.',
+          ].join('\n'),
+        );
+        return;
+      }
+      if (ctx.chat.id !== cycletrakGroupChatId) {
+        await ctx.reply(
+          'The CycleTrak Mini App is only available from the configured Cycletrak Project group chat.',
+        );
+        return;
+      }
+      try {
+        await sendCycletrakMiniAppButton(ctx.chat.id);
+      } catch (err) {
+        logger.warn({ err }, 'Failed to send CycleTrak Mini App button');
+        await ctx.reply('Could not open CycleTrak Mini App. Try again later.');
+      }
+    });
+
+    this.bot.on('my_chat_member', async (ctx) => {
+      if (!cycletrakGroupConfigured) return;
+      const chat = ctx.chat;
+      if (chat.id !== cycletrakGroupChatId) return;
+      if (this.telegramBotUserId === null) return;
+      const newMember = ctx.myChatMember.new_chat_member;
+      const oldMember = ctx.myChatMember.old_chat_member;
+      if (newMember.user.id !== this.telegramBotUserId) return;
+      const wasInChat =
+        oldMember.status === 'member' || oldMember.status === 'administrator';
+      if (wasInChat) return;
+      if (
+        newMember.status !== 'member' &&
+        newMember.status !== 'administrator'
+      ) {
+        return;
+      }
+      if (cycletrakWelcomeSent.has(chat.id)) return;
+      cycletrakWelcomeSent.add(chat.id);
+      try {
+        await sendCycletrakMiniAppButton(chat.id);
+      } catch (err) {
+        cycletrakWelcomeSent.delete(chat.id);
+        logger.warn({ err }, 'CycleTrak group welcome (Mini App) failed');
+      }
     });
 
     this.bot.on('message:text', async (ctx) => {
@@ -533,6 +633,7 @@ export class TelegramChannel implements Channel {
     return new Promise<void>((resolve) => {
       this.bot!.start({
         onStart: async (botInfo) => {
+          this.telegramBotUserId = botInfo.id;
           logger.info(
             { username: botInfo.username, id: botInfo.id },
             'Telegram bot connected',
