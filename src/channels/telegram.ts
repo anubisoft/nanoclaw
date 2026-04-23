@@ -542,20 +542,30 @@ export class TelegramChannel implements Channel {
             `  Send /chatid to the bot to get a chat's registration ID\n`,
           );
 
-          const envMini = readEnvFile(['TELEGRAM_MINI_APP_URL']);
+          const envMini = readEnvFile([
+            'TELEGRAM_MINI_APP_URL',
+            'TELEGRAM_MINI_APP_MENU_TEXT',
+          ]);
           const miniAppUrl =
             process.env.TELEGRAM_MINI_APP_URL || envMini.TELEGRAM_MINI_APP_URL;
+          const miniAppMenuTextExplicit =
+            process.env.TELEGRAM_MINI_APP_MENU_TEXT ||
+            envMini.TELEGRAM_MINI_APP_MENU_TEXT;
+          const miniAppMenuText =
+            miniAppMenuTextExplicit ||
+            (ASSISTANT_NAME !== 'Andy' ? ASSISTANT_NAME : '') ||
+            'NanoClaw';
           if (miniAppUrl) {
             try {
               await this.bot!.api.setChatMenuButton({
                 menu_button: {
                   type: 'web_app',
-                  text: 'NanoClaw',
+                  text: miniAppMenuText,
                   web_app: { url: miniAppUrl },
                 },
               });
               logger.info(
-                { url: miniAppUrl },
+                { url: miniAppUrl, menuButtonText: miniAppMenuText },
                 'Telegram Mini App menu button set',
               );
             } catch (err) {

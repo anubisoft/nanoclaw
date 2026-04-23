@@ -46,8 +46,11 @@ export function readEnvFile(keys: string[]): Record<string, string> {
   // Docker Compose (and similar) inject secrets via env_file into process.env,
   // but the image often has no /app/.env on disk. Fall back so credential proxy
   // and other readers still see ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN, etc.
+  //
+  // When both a disk value and process.env exist, prefer process.env so runtime
+  // overrides (Compose env_file, CI, `export VAR=`) win over a stale local .env.
   for (const key of keys) {
-    if (!result[key] && process.env[key]) {
+    if (process.env[key]) {
       result[key] = process.env[key] as string;
     }
   }

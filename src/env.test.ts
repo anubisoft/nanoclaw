@@ -34,7 +34,7 @@ describe('readEnvFile', () => {
     }
   });
 
-  it('prefers file over process.env when both set', () => {
+  it('prefers process.env over file when both set', () => {
     process.env.FOO_FROM_ENV = 'from-process-env';
     try {
       fs.writeFileSync(
@@ -43,7 +43,7 @@ describe('readEnvFile', () => {
         'utf-8',
       );
       const r = readEnvFile(['FOO_FROM_ENV']);
-      expect(r.FOO_FROM_ENV).toBe('from-file');
+      expect(r.FOO_FROM_ENV).toBe('from-process-env');
     } finally {
       delete process.env.FOO_FROM_ENV;
     }
