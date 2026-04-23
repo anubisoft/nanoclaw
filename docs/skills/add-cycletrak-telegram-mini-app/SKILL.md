@@ -58,7 +58,7 @@ Bring up stack with the dedicated service app key included:
 
 ```bash
 cd host-routed-app-stack
-APPS=nextjs,cycletrak,platform,nanoclaw,nanoclaw-cycletrak,medusa ./scripts/compose-factory.sh up -d --build
+APPS=nextjs,cycletrak,platform,nanoclaw,nanoclaw-cycletrak ./scripts/compose-factory.sh up -d --build
 ```
 
 1. Restart NanoClaw.
