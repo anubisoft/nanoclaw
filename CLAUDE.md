@@ -66,7 +66,7 @@ launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist
 launchctl kickstart -k gui/$(id -u)/com.nanoclaw  # restart
 
 # Linux (this repo/server)
-# NanoClaw is expected to run as a Docker Compose service (see web-app-stack/),
+# NanoClaw is expected to run as a Docker Compose service (see multihost/),
 # not as a host user service. Avoid managing a host `nanoclaw.service`.
 ```
 

@@ -50,8 +50,8 @@ describe('translatePathForNestedDocker', () => {
     expect(
       translatePathForNestedDocker('/app', mappings, {
         projectRoot: '/app',
-        hostProjectRootEnv: '/home/deploy/stack/nanoclaw',
+        hostProjectRootEnv: '/home/deploy/platform-ops/nanoclaw',
       }),
-    ).toBe('/home/deploy/stack/nanoclaw');
+    ).toBe('/home/deploy/platform-ops/nanoclaw');
   });
 });
