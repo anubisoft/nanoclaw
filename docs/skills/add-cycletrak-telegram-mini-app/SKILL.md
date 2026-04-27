@@ -34,7 +34,7 @@ If this skill is hosted on a different trusted remote, fetch and merge from that
 
 Use the NanoClaw env file used by your Compose deployment:
 
-- `host-routed-app-stack/nanoclaw/.env`
+- `multihost/nanoclaw/.env`
 - (or another path via `NANOCLAW_DOTENV_FILE`)
 
 Set in that tenant env file:
@@ -57,7 +57,7 @@ Allow the same HTTPS CycleTrak domain in BotFather Mini App/Web App settings for
 Bring up stack with the NanoClaw app key included:
 
 ```bash
-cd host-routed-app-stack
+cd multihost
 APPS=nextjs,cycletrak,platform,nanoclaw ./scripts/compose-factory.sh up -d --build
 ```
 
