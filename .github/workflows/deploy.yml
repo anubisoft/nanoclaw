@@ -7,6 +7,7 @@ on:
       - "src/**"
       - "container/**"
       - "package*.json"
+      - "pnpm-lock.yaml"
   workflow_dispatch:
 
 concurrency:
@@ -19,26 +20,37 @@ jobs:
     runs-on: [self-hosted, linux, production]
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Format check
-        run: npm run format:check
+        run: pnpm run format:check
 
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: pnpm exec tsc --noEmit
 
       - name: Tests
-        run: npx vitest run
+        run: pnpm test
 
       - name: Deploy NanoClaw
         run: ./scripts/deploy.sh
 
       - name: Show logs on failure
         if: failure()
-        run: journalctl --user -u nanoclaw --no-pager -n 50 || true
+        run: |
+          docker logs nanoclaw --tail=80 2>/dev/null || true
+          MH="${MULTIHOST_ROOT:-/home/deploy/platform-ops/multihost}"
+          if [[ -f "$MH/scripts/compose-factory.sh" ]]; then
+            (cd "$MH" && APPS=nanoclaw bash scripts/compose-factory.sh logs --tail=80 nanoclaw) || true
+          fi
